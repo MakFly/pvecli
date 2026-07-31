@@ -56,8 +56,14 @@ func newIaCScaffoldCmd() *cobra.Command {
   <terraform_dir>/pvecli-vms.tf   variable « vms » + la ressource for_each
   <terraform_dir>/pvecli-base.tf  provider et variables partagées — SEULEMENT si
                                   le dossier ne déclare pas déjà un provider proxmox
-  <ansible_dir>/site.yml          un play par service, visant le groupe svc_<id>
+  <ansible_dir>/pvecli.yml        un play par service, visant le groupe svc_<id>
   <ansible_dir>/roles/…           les rôles du catalogue
+
+Le playbook s'appelle « pvecli.yml » et non « site.yml » : un dossier Ansible
+existant a presque toujours le sien, écrit à la main, et les deux doivent
+pouvoir cohabiter. Il se joue donc explicitement :
+
+  pvecli iac configure --playbook pvecli.yml
 
 La séparation est le cœur du dispositif : ces fichiers-ci sont du CODE, relu une
 fois par un humain et versionné. Les VM, elles, sont de la DONNÉE, et vivent
@@ -142,6 +148,7 @@ Ensuite, dans cet ordre :
   ansible-galaxy collection install -r %s
   pvecli vm declare <nom> --vmid <id> --cores 2 --memory 8192 --with docker
   pvecli iac plan && pvecli iac apply
+  pvecli iac configure --playbook pvecli.yml --idempotence
 `, filepath.Join(eff.IaC.AnsibleDir, "requirements.yml"))
 			}
 

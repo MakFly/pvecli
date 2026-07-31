@@ -135,15 +135,26 @@ C'est **toujours** le chemin par défaut quand la VM doit durer. **Tu n'édites
 jamais de HCL** : `vm declare` écrit une donnée, le module la lit.
 
 ```bash
-pvecli iac scaffold                       # une fois par dossier : module + rôles
+# une fois par dossier : le module Terraform et les rôles Ansible
+pvecli iac scaffold
+
+# MIBIOCTETS : 8 Go s'écrit 8192. Lis le diff, puis relance sans --dry-run.
 pvecli vm declare app-01 --vmid 220 \
-    --cores 2 --memory 8192 \             # MIBIOCTETS : 8 Go = 8192
+    --cores 2 --memory 8192 \
     --ip 192.168.1.220/24 --gateway 192.168.1.1 \
     --with docker,postgresql,cloudflared \
-    --dry-run                             # lis le diff, puis relance sans --dry-run
-pvecli iac plan && pvecli iac apply       # post-vol : relecture par l'API
-pvecli iac configure --idempotence        # rôles joués, puis bloc de connexion
+    --dry-run
+
+# le post-vol de l'apply relit par l'API : c'est LUI la preuve
+pvecli iac plan && pvecli iac apply
+
+# joue les rôles, puis affiche le bloc de connexion
+pvecli iac configure --playbook pvecli.yml --idempotence
 ```
+
+Le playbook du catalogue s'appelle `pvecli.yml`, pas `site.yml` : un dépôt
+d'infrastructure a presque toujours son propre `site.yml`, et les deux
+cohabitent. `--playbook` n'est donc pas optionnel ici.
 
 `--with` prend les ids du catalogue (`pvecli vm declare --help` les liste, la
 complétion aussi). Chaque service pose un tag `svc_<id>` ; l'inventaire en fait
@@ -181,7 +192,7 @@ pvecli cf status                          # vérifie le jeton AVANT tout le rest
 pvecli cf tunnel create homelab           # le jeton de connecteur part au trousseau
 pvecli cf route add n8n.exemple.tld \
     --tunnel homelab --service http://192.168.1.220:5678
-pvecli iac configure --cf-tunnel homelab --cf-hostname n8n.exemple.tld
+pvecli iac configure --playbook pvecli.yml --cf-tunnel homelab --cf-hostname n8n.exemple.tld
 ```
 
 Prérequis : `CF_API_TOKEN` dans l'environnement (jamais en argument) et

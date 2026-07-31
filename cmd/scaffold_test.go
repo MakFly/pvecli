@@ -31,7 +31,7 @@ func TestScaffoldWritesModuleAndRoles(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join(tfDir, "pvecli-vms.tf"),
 		filepath.Join(tfDir, "pvecli-base.tf"),
-		filepath.Join(ansDir, "site.yml"),
+		filepath.Join(ansDir, "pvecli.yml"),
 		filepath.Join(ansDir, "roles", "docker", "tasks", "main.yml"),
 		filepath.Join(ansDir, "roles", "postgresql", "tasks", "main.yml"),
 		filepath.Join(ansDir, "roles", "cloudflared", "tasks", "main.yml"),
@@ -97,6 +97,32 @@ func TestScaffoldSkipsBaseWhenTheDirectoryAlreadyHasAProvider(t *testing.T) {
 	}
 }
 
+// An Ansible directory that already exists almost always has a hand-written
+// site.yml. Shipping the catalogue under that name would make scaffold refuse
+// on the very first run against a real repository -- which is how this was
+// found.
+func TestScaffoldCoexistsWithAHandWrittenSiteYML(t *testing.T) {
+	_, ansDir := scaffoldDirs(t)
+	mine := filepath.Join(ansDir, "site.yml")
+	if err := os.WriteFile(mine, []byte("---\n- name: le mien\n  hosts: lab_apps\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := run(t, "iac", "scaffold"); err != nil {
+		t.Fatalf("scaffold doit passer à côté d'un site.yml existant : %v", err)
+	}
+	raw, err := os.ReadFile(mine) //nolint:gosec // path built by the test
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "le mien") {
+		t.Error("le site.yml écrit à la main a été touché")
+	}
+	if _, err := os.Stat(filepath.Join(ansDir, "pvecli.yml")); err != nil {
+		t.Error("le playbook du catalogue doit être posé à côté, sous son propre nom")
+	}
+}
+
 // The refusal is the feature: the difference is either a local adaptation or an
 // older version, and choosing between them silently helps nobody.
 func TestScaffoldRefusesToOverwriteALocalEdit(t *testing.T) {
@@ -105,7 +131,7 @@ func TestScaffoldRefusesToOverwriteALocalEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	site := filepath.Join(ansDir, "site.yml")
+	site := filepath.Join(ansDir, "pvecli.yml")
 	if err := os.WriteFile(site, []byte("# à moi\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
