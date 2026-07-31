@@ -75,10 +75,11 @@ commande : la différence est soit une adaptation que tu as écrite, soit une
 version antérieure, et choisir à ta place entre les deux ne rend service à
 personne. --force tranche, après que tu aies regardé.
 
-Les rôles supposent des collections Ansible listées dans le requirements.yml
-posé à côté :
+Pour la même raison, les collections dont les rôles ont besoin sont listées dans
+« pvecli-requirements.yml » : un dossier existant a déjà son requirements.yml, et
+l'écraser retirerait silencieusement les collections qu'il déclarait.
 
-  ansible-galaxy collection install -r <ansible_dir>/requirements.yml`,
+  ansible-galaxy collection install -r <ansible_dir>/pvecli-requirements.yml`,
 		Args: usage(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			eff, err := resolveConfig(cmd)
@@ -149,7 +150,7 @@ Ensuite, dans cet ordre :
   pvecli vm declare <nom> --vmid <id> --cores 2 --memory 8192 --with docker
   pvecli iac plan && pvecli iac apply
   pvecli iac configure --playbook pvecli.yml --idempotence
-`, filepath.Join(eff.IaC.AnsibleDir, "requirements.yml"))
+`, filepath.Join(eff.IaC.AnsibleDir, "pvecli-requirements.yml"))
 			}
 
 			opts, err := renderOptions(cmd)

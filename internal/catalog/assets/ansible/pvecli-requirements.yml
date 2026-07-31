@@ -1,0 +1,10 @@
+---
+# Posé par « pvecli iac scaffold ». À installer une fois sur le CONTRÔLEUR :
+#   ansible-galaxy collection install -r pvecli-requirements.yml
+#
+# Fichier distinct du « requirements.yml » que ton dépôt a probablement déjà :
+# l'écraser retirerait les collections qu'il déclarait, sans le dire. Deux
+# fichiers, deux responsabilités ; ansible-galaxy accepte les deux.
+collections:
+  - name: community.postgresql
+    version: ">=3.0.0"

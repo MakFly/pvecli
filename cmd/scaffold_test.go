@@ -123,6 +123,32 @@ func TestScaffoldCoexistsWithAHandWrittenSiteYML(t *testing.T) {
 	}
 }
 
+// Same trap, second file: overwriting an existing requirements.yml would drop
+// the collections it declared, silently, and the playbooks that needed them
+// would fail much later with a missing-module error.
+func TestScaffoldCoexistsWithAHandWrittenRequirements(t *testing.T) {
+	_, ansDir := scaffoldDirs(t)
+	mine := filepath.Join(ansDir, "requirements.yml")
+	body := "collections:\n  - name: community.docker\n"
+	if err := os.WriteFile(mine, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := run(t, "iac", "scaffold"); err != nil {
+		t.Fatalf("scaffold doit passer à côté d'un requirements.yml existant : %v", err)
+	}
+	raw, err := os.ReadFile(mine) //nolint:gosec // path built by the test
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != body {
+		t.Errorf("le requirements.yml écrit à la main a été touché :\n%s", raw)
+	}
+	if _, err := os.Stat(filepath.Join(ansDir, "pvecli-requirements.yml")); err != nil {
+		t.Error("les collections du catalogue doivent être posées dans leur propre fichier")
+	}
+}
+
 // The refusal is the feature: the difference is either a local adaptation or an
 // older version, and choosing between them silently helps nobody.
 func TestScaffoldRefusesToOverwriteALocalEdit(t *testing.T) {

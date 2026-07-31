@@ -1,6 +1,0 @@
----
-# Posé par « pvecli iac scaffold ». À installer une fois sur le CONTRÔLEUR :
-#   ansible-galaxy collection install -r requirements.yml
-collections:
-  - name: community.postgresql
-    version: ">=3.0.0"
