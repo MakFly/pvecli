@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvectl/internal/config"
-	"github.com/MakFly/pvectl/internal/testutil"
+	"github.com/MakFly/pvecli/internal/config"
+	"github.com/MakFly/pvecli/internal/testutil"
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +28,7 @@ func completeArgs(t *testing.T, args ...string) (stdout, ours string) {
 }
 
 // ourStderr drops the one line Cobra always writes itself — « Completion ended
-// with directive: … » — so a test can assert on what PVECTL said. Cobra's line
+// with directive: … » — so a test can assert on what PVECLI said. Cobra's line
 // is part of its protocol and every shell integration discards stderr; ours
 // would land in the middle of the prompt.
 func ourStderr(raw string) string {
@@ -158,7 +158,7 @@ func TestCompletionCacheIsKeyedByEndpointAndIdentity(t *testing.T) {
 	}
 	// A token id in a filename would leak an identity to anything listing the
 	// cache directory.
-	if strings.Contains(a, "automation") || strings.Contains(a, "pvectl!") {
+	if strings.Contains(a, "automation") || strings.Contains(a, "pvecli!") {
 		t.Errorf("le chemin de cache expose l'identité : %s", a)
 	}
 }

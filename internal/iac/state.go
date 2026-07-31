@@ -10,7 +10,7 @@ import (
 )
 
 // TerraformBin is the binary the state reader drives. It is not configurable:
-// the whole point of decision D2 is that pvectl asks Terraform what the state
+// the whole point of decision D2 is that pvecli asks Terraform what the state
 // says, rather than deciding for itself what a state file looks like.
 const TerraformBin = "terraform"
 
@@ -71,7 +71,7 @@ func (e *EmptyStateError) Error() string {
 	return fmt.Sprintf("le state Terraform de %s est vide.\n\n"+
 		"Ce n'est pas une erreur de lecture : terraform a répondu, et n'a aucune\n"+
 		"ressource à déclarer. Le plus probable est qu'il n'a pas encore été appliqué :\n"+
-		"  pvectl iac plan     puis     pvectl iac apply", e.Dir)
+		"  pvecli iac plan     puis     pvecli iac apply", e.Dir)
 }
 
 // ExitCode: an empty state is a state of affairs, not a failure. 0 would be a

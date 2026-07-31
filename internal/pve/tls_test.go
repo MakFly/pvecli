@@ -82,7 +82,7 @@ func TestUnknownCertificateSuggestsTrust(t *testing.T) {
 	if certErr.Reason != CertUnknown {
 		t.Errorf("Reason = %v, want CertUnknown", certErr.Reason)
 	}
-	if !strings.Contains(certErr.Error(), "pvectl config trust") {
+	if !strings.Contains(certErr.Error(), "pvecli config trust") {
 		t.Errorf("le message doit proposer la commande exacte, got:\n%s", certErr)
 	}
 }

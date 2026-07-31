@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MakFly/pvectl/internal/output"
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/output"
+	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/spf13/cobra"
 )
 
@@ -98,7 +98,7 @@ func newVMIPCmd() *cobra.Command {
 		Long: `Affiche une seule adresse, sans en-tête ni décoration, pour être utilisable
 directement dans un script :
 
-    ssh debian@$(pvectl vm ip 212)
+    ssh debian@$(pvecli vm ip 212)
 
 Si l'agent ne répond pas, la commande échoue avec le message qui explique quoi
 installer — elle ne renvoie jamais une chaîne vide qu'un script prendrait pour

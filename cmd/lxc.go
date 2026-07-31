@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MakFly/pvectl/internal/output"
-	"github.com/MakFly/pvectl/internal/pve"
-	"github.com/MakFly/pvectl/internal/service"
+	"github.com/MakFly/pvecli/internal/output"
+	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/MakFly/pvecli/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +20,7 @@ import (
 // besides stdin. A password given as a command-line argument is visible in
 // `ps`, in the shell history and in every process listing on the machine — so
 // --password takes no value here, it only asks where to read one.
-const EnvCTPassword = "PVECTL_CT_PASSWORD"
+const EnvCTPassword = "PVECLI_CT_PASSWORD"
 
 func newLXCCreateCmd() *cobra.Command {
 	var (
@@ -46,8 +46,8 @@ les deux. --privileged existe, et devrait rester inutilisé.
 MOT DE PASSE. Il n'est jamais accepté en argument : la ligne de commande est
 lisible par « ps » et reste dans l'historique du shell. Deux voies :
 
-    pvectl lxc create 120 … --password-stdin < motdepasse.txt
-    PVECTL_CT_PASSWORD=… pvectl lxc create 120 …
+    pvecli lxc create 120 … --password-stdin < motdepasse.txt
+    PVECLI_CT_PASSWORD=… pvecli lxc create 120 …
 
 Sans mot de passe ni clé SSH, le conteneur démarre sans aucun accès — ce qui
 est un état parfaitement valide pour un conteneur piloté par la console du
@@ -55,7 +55,7 @@ nœud.
 
 Le template doit exister sur le storage indiqué :
 
-    pvectl storage content local --content vztmpl
+    pvecli storage content local --content vztmpl
 
 Endpoint : POST /api2/json/nodes/{node}/lxc`,
 		Args: usage(cobra.ExactArgs(1)),
@@ -65,7 +65,7 @@ Endpoint : POST /api2/json/nodes/{node}/lxc`,
 				return &exitError{code: pve.ExitUsage, msg: fmt.Sprintf("vmid invalide : %q", args[0])}
 			}
 			if o.OSTemplate == "" {
-				return &exitError{code: pve.ExitUsage, msg: "--ostemplate est obligatoire (pvectl storage content local --content vztmpl)"}
+				return &exitError{code: pve.ExitUsage, msg: "--ostemplate est obligatoire (pvecli storage content local --content vztmpl)"}
 			}
 			opts, err := renderOptions(cmd)
 			if err != nil {
@@ -111,7 +111,7 @@ Endpoint : POST /api2/json/nodes/{node}/lxc`,
 					Path:     pve.CreatePath(pve.TypeLXC, node),
 					Payload:  params,
 					Effect:   fmt.Sprintf("création du conteneur %d sur %s (%s)", vmid, node, privilegeLabel(o.Privileged)),
-					Rollback: fmt.Sprintf("pvectl lxc rm %d", vmid),
+					Rollback: fmt.Sprintf("pvecli lxc rm %d", vmid),
 					Verify:   fmt.Sprintf("relecture de la configuration de %d", vmid),
 				},
 				// Two conditions before any write: the vmid must be free, and
@@ -150,7 +150,7 @@ Endpoint : POST /api2/json/nodes/{node}/lxc`,
 				if _, err := client.SetGuestStatus(cmd.Context(), node, pve.TypeLXC, vmid, pve.ActionStart, nil); err != nil {
 					return err
 				}
-				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "démarrage demandé — suis-le avec « pvectl task ls --running »\n")
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "démarrage demandé — suis-le avec « pvecli task ls --running »\n")
 			}
 
 			rows := output.Rows{Headers: []string{"CHAMP", "VALEUR"}, Cells: [][]string{
@@ -465,7 +465,7 @@ Endpoint : POST /api2/json/nodes/{node}/lxc/{vmid}/clone`,
 					Path:     pve.ClonePath(pve.TypeLXC, node, src),
 					Payload:  params,
 					Effect:   fmt.Sprintf("conteneur %d créé depuis %d", o.NewID, src),
-					Rollback: fmt.Sprintf("pvectl lxc rm %d", o.NewID),
+					Rollback: fmt.Sprintf("pvecli lxc rm %d", o.NewID),
 					Verify:   fmt.Sprintf("relecture de la configuration de %d", o.NewID),
 				},
 				PreRead: func(ctx context.Context) (service.State, error) {

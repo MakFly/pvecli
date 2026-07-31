@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MakFly/pvectl/internal/config"
+	"github.com/MakFly/pvecli/internal/config"
 )
 
 // Les VMID de cette suite. Bornés haut et bas, et vérifiés : une faute de
@@ -42,17 +42,17 @@ func init() {
 // environnement par-dessus fichier. C'est ce qui rend ces tests utiles.
 //
 // La confiance TLS ne vit PAS dans l'environnement. Le certificat du lab est
-// auto-signé, et l'empreinte épinglée par `pvectl config trust` est écrite dans
-// le fichier de configuration — `~/.config/pvectl/env` ne l'exporte pas et n'a
+// auto-signé, et l'empreinte épinglée par `pvecli config trust` est écrite dans
+// le fichier de configuration — `~/.config/pvecli/env` ne l'exporte pas et n'a
 // pas à le faire. Une suite qui ne lisait que `PVE_TLS_FINGERPRINT` montait donc
-// un client en vérification système là où `pvectl doctor`, juste à côté,
+// un client en vérification système là où `pvecli doctor`, juste à côté,
 // répondait quatre ✓ : le test échouait sur le certificat sans que rien du
 // produit ne soit en cause. Résoudre par la même chaîne que la CLI supprime
 // l'écart au lieu de le contourner par un `--insecure`.
 func liveConfig(t *testing.T) *config.Effective {
 	t.Helper()
 
-	path, err := config.Path(os.Getenv("PVECTL_CONFIG"))
+	path, err := config.Path(os.Getenv("PVECLI_CONFIG"))
 	if err != nil {
 		t.Fatalf("chemin de configuration : %v", err)
 	}
@@ -75,7 +75,7 @@ func liveClient(t *testing.T) (*Client, string) {
 
 	eff := liveConfig(t)
 	if eff.Endpoint == "" || eff.TokenID == "" || eff.TokenSecret == "" {
-		t.Skip("endpoint / token_id / PVE_API_TOKEN_SECRET absents — source ~/.config/pvectl/env")
+		t.Skip("endpoint / token_id / PVE_API_TOKEN_SECRET absents — source ~/.config/pvecli/env")
 	}
 
 	node := eff.Node
@@ -176,10 +176,10 @@ func TestLiveGuestLifecycle(t *testing.T) {
 
 	upid, err := c.CreateGuest(ctx, node, TypeQEMU, integrationVMID, url.Values{
 		"vmid":   {strconv.Itoa(integrationVMID)},
-		"name":   {"pvectl-integration"},
+		"name":   {"pvecli-integration"},
 		"cores":  {"1"},
 		"memory": {"512"},
-		"tags":   {"pvectl;integration"},
+		"tags":   {"pvecli;integration"},
 	})
 	if err != nil {
 		t.Fatalf("CreateGuest: %v", err)

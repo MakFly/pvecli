@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvectl/internal/testutil"
+	"github.com/MakFly/pvecli/internal/testutil"
 )
 
 func accessClient(t *testing.T, routes map[string]string) *Client {
@@ -57,7 +57,7 @@ func TestRoleHasTwoShapes(t *testing.T) {
 // survive both JSON types PVE uses for it.
 func TestTokenPrivsepDecodesFromBothTypes(t *testing.T) {
 	var asNumber Token
-	if err := json.Unmarshal([]byte(`{"tokenid":"pvectl","privsep":1,"expire":1801412319}`), &asNumber); err != nil {
+	if err := json.Unmarshal([]byte(`{"tokenid":"pvecli","privsep":1,"expire":1801412319}`), &asNumber); err != nil {
 		t.Fatalf("forme entière: %v", err)
 	}
 	// This is what POST /access/users/{u}/token/{t} actually answers. Rejecting

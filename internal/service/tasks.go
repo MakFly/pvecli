@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/pve"
 )
 
 // TaskAPI is the slice of the client the waiter needs.
@@ -60,7 +60,7 @@ func (w *TaskWaiter) Wait(ctx context.Context, upid *pve.UPID) (*pve.Task, error
 			return nil, fmt.Errorf(`attente interrompue — la tâche continue sur le nœud.
 
 Elle n'a PAS été annulée. Pour reprendre le suivi :
-  pvectl task wait %s`, upid)
+  pvecli task wait %s`, upid)
 
 		case <-time.After(delay):
 			if delay < maxDelay {

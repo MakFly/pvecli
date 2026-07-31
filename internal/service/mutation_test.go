@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/pve"
 )
 
 const testUPID = "UPID:pve:0011A2B3:000043CD:6A6CAD90:qmstart:210:automation@pve:"

@@ -33,7 +33,7 @@ type Guest struct {
 	Name   string `json:"name,omitempty"`
 	Status string `json:"status"`
 
-	// Type is filled by pvectl, not by the API: it is what lets `guest ls`
+	// Type is filled by pvecli, not by the API: it is what lets `guest ls`
 	// merge both families into one table.
 	Type GuestType `json:"type,omitempty"`
 

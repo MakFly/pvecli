@@ -8,20 +8,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvectl/internal/config"
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/config"
+	"github.com/MakFly/pvecli/internal/pve"
 )
 
 // TestMain isolates the package from whatever the developer has on their own
-// machine. Without it, a test that forgets --config reads ~/.config/pvectl and
+// machine. Without it, a test that forgets --config reads ~/.config/pvecli and
 // passes or fails depending on whose laptop runs it — which is how the version
 // test below was found to be lying.
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "pvectl-cmd-test")
+	dir, err := os.MkdirTemp("", "pvecli-cmd-test")
 	if err != nil {
 		panic(err)
 	}
-	_ = os.Setenv("PVECTL_CONFIG", filepath.Join(dir, "config.yaml"))
+	_ = os.Setenv("PVECLI_CONFIG", filepath.Join(dir, "config.yaml"))
 	for _, name := range []string{
 		config.EnvEndpoint, config.EnvTokenID, config.EnvTokenSecret, config.EnvInsecure,
 	} {
@@ -54,7 +54,7 @@ func TestVersionFlagPrintsBuildMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("--version returned an error: %v", err)
 	}
-	if got, want := stdout, "pvectl dev (commit abc1234)\n"; got != want {
+	if got, want := stdout, "pvecli dev (commit abc1234)\n"; got != want {
 		t.Errorf("stdout = %q, want %q", got, want)
 	}
 }
@@ -93,7 +93,7 @@ func TestNoArgsPrintsHelp(t *testing.T) {
 // The `version` verb reads the node, not the binary. Without credentials it
 // must fail — and fail with exit code 3, before any socket is opened.
 func TestVersionCommandTargetsTheNodeNotTheBinary(t *testing.T) {
-	t.Setenv("PVECTL_CONFIG", filepath.Join(t.TempDir(), "config.yaml"))
+	t.Setenv("PVECLI_CONFIG", filepath.Join(t.TempDir(), "config.yaml"))
 	t.Setenv(config.EnvEndpoint, "https://pve.invalid:8006")
 	t.Setenv(config.EnvTokenID, "automation@pve!pvectl")
 	t.Setenv(config.EnvTokenSecret, "")

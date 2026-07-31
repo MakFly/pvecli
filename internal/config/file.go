@@ -11,22 +11,22 @@ import (
 )
 
 // Path returns where the configuration file lives, in decreasing priority:
-// the --config flag, $PVECTL_CONFIG, $XDG_CONFIG_HOME/pvectl/, ~/.config/pvectl/.
+// the --config flag, $PVECLI_CONFIG, $XDG_CONFIG_HOME/pvecli/, ~/.config/pvecli/.
 func Path(flagValue string) (string, error) {
 	if flagValue != "" {
 		return flagValue, nil
 	}
-	if p := os.Getenv("PVECTL_CONFIG"); p != "" {
+	if p := os.Getenv("PVECLI_CONFIG"); p != "" {
 		return p, nil
 	}
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
-		return filepath.Join(dir, "pvectl", "config.yaml"), nil
+		return filepath.Join(dir, "pvecli", "config.yaml"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("impossible de déterminer le dossier personnel : %w", err)
 	}
-	return filepath.Join(home, ".config", "pvectl", "config.yaml"), nil
+	return filepath.Join(home, ".config", "pvecli", "config.yaml"), nil
 }
 
 // Load reads the configuration file.

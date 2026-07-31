@@ -16,7 +16,7 @@ import (
 // proxmoxAgent is the subagent definition, compiled into the binary.
 //
 // Embedded rather than shipped alongside, for the same reason the binary is
-// built static: `pvectl ai install` must work from a single file copied onto a
+// built static: `pvecli ai install` must work from a single file copied onto a
 // machine, with nothing else to fetch. The definition and the CLI it drives are
 // then versioned together — an agent that documents flags the local binary does
 // not have is worse than no agent.
@@ -46,10 +46,10 @@ page par défaut de Debian.
 
 C'est la même chaîne qu'à la main, conduite par un agent :
 
-  pvectl doctor → édition du main.tf → iac plan → iac apply → iac configure
+  pvecli doctor → édition du main.tf → iac plan → iac apply → iac configure
 
-La définition est COMPILÉE DANS LE BINAIRE. Elle suit donc la version de pvectl
-qu'elle décrit, et « pvectl ai install » ne télécharge rien.`,
+La définition est COMPILÉE DANS LE BINAIRE. Elle suit donc la version de pvecli
+qu'elle décrit, et « pvecli ai install » ne télécharge rien.`,
 		Args: usage(cobra.NoArgs),
 	}
 	c.AddCommand(newAIInstallCmd(), newAIPrintCmd(), newAIStatusCmd())
@@ -121,7 +121,7 @@ Le fichier cible est créé, jamais fusionné. Si le fichier présent DIFFÈRE d
 définition embarquée, la commande s'arrête : la différence est soit une
 personnalisation que tu as écrite, soit une version antérieure, et écraser
 silencieusement l'une ou l'autre ne rend service à personne. --force tranche,
-après que tu aies regardé (« pvectl ai print » donne la version embarquée).
+après que tu aies regardé (« pvecli ai print » donne la version embarquée).
 
 Rien n'est envoyé sur le réseau, et l'agent n'a besoin d'aucune clé d'API :
 c'est Claude Code qui l'exécute, avec les identifiants dont il dispose déjà.`,
@@ -152,9 +152,9 @@ c'est Claude Code qui l'exécute, avec les identifiants dont il dispose déjà.`
 
 Regarde avant d'écraser :
 
-  pvectl ai print > /tmp/%s && diff %s /tmp/%s
+  pvecli ai print > /tmp/%s && diff %s /tmp/%s
 
-puis « pvectl ai install --force » si tu assumes la perte des modifications`,
+puis « pvecli ai install --force » si tu assumes la perte des modifications`,
 						path, digest(mustRead(path)), digest(proxmoxAgent),
 						agentFileName, path, agentFileName)
 				}
@@ -204,7 +204,7 @@ func newAIPrintCmd() *cobra.Command {
 Utile pour la relire, la comparer à un fichier déjà installé, ou l'installer
 ailleurs qu'à l'emplacement par défaut :
 
-  pvectl ai print > .claude/agents/` + agentFileName + `
+  pvecli ai print > .claude/agents/` + agentFileName + `
 
 Un agent posé dans le dépôt plutôt que dans ~/.claude n'est visible que depuis
 ce dépôt — c'est le bon choix si tu veux l'adapter à un nœud particulier sans
@@ -241,7 +241,7 @@ func newAIStatusCmd() *cobra.Command {
 
 			switch state {
 			case agentAbsent:
-				_, _ = fmt.Fprintln(out, "état        absent — « pvectl ai install » l'écrit")
+				_, _ = fmt.Fprintln(out, "état        absent — « pvecli ai install » l'écrit")
 			case agentCurrent:
 				_, _ = fmt.Fprintln(out, "état        à jour")
 			case agentModified:

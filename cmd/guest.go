@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MakFly/pvectl/internal/output"
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/output"
+	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/spf13/cobra"
 )
 
@@ -89,7 +89,7 @@ C'est cette nature qui rend le clonage possible (PVX-024).`,
 			}
 
 			// Initialised, not nil: an empty listing must serialise as [] so
-			// that `pvectl vm ls -o json | jq '.[].name'` works on a lab with
+			// that `pvecli vm ls -o json | jq '.[].name'` works on a lab with
 			// no VMs. A nil slice encodes to null, and jq stops there.
 			guests := []pve.Guest{}
 			for _, node := range nodes {

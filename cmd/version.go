@@ -18,7 +18,7 @@ func newVersionCmd() *cobra.Command {
 		Short: "Affiche la version du nœud Proxmox VE (GET /version)",
 		Long: `Interroge le nœud configuré et affiche sa version, sa release et son repoid.
 
-À ne pas confondre avec « pvectl --version », qui affiche la version de ce
+À ne pas confondre avec « pvecli --version », qui affiche la version de ce
 binaire. La version du nœud conditionne le schéma de tous les endpoints : un
 endpoint « qui n'existe pas » est très souvent un endpoint d'une autre version.
 Elle est donc mémorisée dans le contexte courant, sous « detected_version ».

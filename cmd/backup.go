@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/MakFly/pvectl/internal/output"
-	"github.com/MakFly/pvectl/internal/pve"
-	"github.com/MakFly/pvectl/internal/service"
+	"github.com/MakFly/pvecli/internal/output"
+	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/MakFly/pvecli/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -135,7 +135,7 @@ Endpoint : POST /api2/json/nodes/{node}/vzdump`,
 						// poll either. Returning an empty string is how it is
 						// told there is nothing to follow.
 						_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
-							"tâche lancée, la main t'est rendue :\n  %s\n  pvectl task wait %s\n", upid, upid)
+							"tâche lancée, la main t'est rendue :\n  %s\n  pvecli task wait %s\n", upid, upid)
 						return "", nil
 					}
 					return upid, nil
@@ -410,7 +410,7 @@ Endpoint : POST /api2/json/nodes/{node}/qemu (ou /lxc), paramètre « archive »
 					code: pve.ExitUsage,
 					msg: fmt.Sprintf("impossible de déduire le type de guest de %q.\n"+
 						"Un volume de sauvegarde ressemble à « local:backup/vzdump-qemu-212-….vma.zst » :\n"+
-						"  pvectl backup ls", o.Archive),
+						"  pvecli backup ls", o.Archive),
 				}
 			}
 
@@ -441,7 +441,7 @@ Endpoint : POST /api2/json/nodes/{node}/qemu (ou /lxc), paramètre « archive »
 					Path:     pve.CreatePath(kind, node),
 					Payload:  o.Values(),
 					Effect:   fmt.Sprintf("guest %d recréé depuis %s", newID, o.Archive),
-					Rollback: fmt.Sprintf("pvectl %s rm %d", cliGroup(kind), newID),
+					Rollback: fmt.Sprintf("pvecli %s rm %d", cliGroup(kind), newID),
 					Verify:   fmt.Sprintf("relecture de la configuration de %d", newID),
 				},
 				PreRead: func(ctx context.Context) (service.State, error) {
@@ -461,7 +461,7 @@ Endpoint : POST /api2/json/nodes/{node}/qemu (ou /lxc), paramètre « archive »
 					}
 					if detach && upid != "" {
 						_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
-							"restauration lancée, la main t'est rendue :\n  %s\n  pvectl task wait %s\n", upid, upid)
+							"restauration lancée, la main t'est rendue :\n  %s\n  pvecli task wait %s\n", upid, upid)
 						return "", nil
 					}
 					return upid, nil
@@ -488,7 +488,7 @@ Endpoint : POST /api2/json/nodes/{node}/qemu (ou /lxc), paramètre « archive »
 				// RTO gets measured wrong.
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 					"\nle guest %d est restauré, il n'est pas rétabli. Restent à faire :\n"+
-						"  pvectl %s start %d\n"+
+						"  pvecli %s start %d\n"+
 						"  puis la vérification applicative — c'est elle qui arrête le chronomètre du RTO\n",
 					newID, cliGroup(kind), newID)
 			}
@@ -584,11 +584,11 @@ réseau overlay. Une archive restaure un disque, pas une infrastructure.`,
 			}
 			_, _ = fmt.Fprintf(out, `
   0. relever l'état de référence — le service répond-il AVANT la panne ?
-  1. pvectl backup run %d --storage local --mode snapshot --compress zstd
-  2. pvectl backup ls --vmid %d            ← noter l'heure : c'est le RPO
-  3. pvectl vm rm %d --force               ← panne simulée, chronomètre lancé
-  4. pvectl backup restore <volid> --newid %d
-  5. pvectl vm start %d
+  1. pvecli backup run %d --storage local --mode snapshot --compress zstd
+  2. pvecli backup ls --vmid %d            ← noter l'heure : c'est le RPO
+  3. pvecli vm rm %d --force               ← panne simulée, chronomètre lancé
+  4. pvecli backup restore <volid> --newid %d
+  5. pvecli vm start %d
   6. vérifier le SERVICE, pas la VM       ← c'est ici que le RTO s'arrête
 
   puis, dans docs/LEARNING-LOG.md : les deux nombres, et surtout la liste de ce

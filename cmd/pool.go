@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MakFly/pvectl/internal/output"
-	"github.com/MakFly/pvectl/internal/pve"
-	"github.com/MakFly/pvectl/internal/service"
+	"github.com/MakFly/pvecli/internal/output"
+	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/MakFly/pvecli/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -23,9 +23,9 @@ CHEMIN D'AUTORISATION. Chaque pool existe aussi comme « /pool/<id> » dans le
 modèle d'ACL, et un rôle attribué là couvre tous ses membres, présents et à
 venir :
 
-  pvectl pool create prod
-  pvectl pool add prod --vmid 210,211
-  pvectl access acl set --path /pool/prod --role PVEVMAdmin --token …
+  pvecli pool create prod
+  pvecli pool add prod --vmid 210,211
+  pvecli access acl set --path /pool/prod --role PVEVMAdmin --token …
 
 Les deux VM sont couvertes, et celle qu'on ajoutera demain le sera aussi sans
 retoucher l'ACL. C'est la seule raison de créer un pool ; le regroupement
@@ -173,7 +173,7 @@ Endpoint : POST /api2/json/pools`,
 					Payload: pve.PoolCreateValues(poolid, comment),
 					Effect: fmt.Sprintf("crée le pool %s, et avec lui le chemin d'ACL %s",
 						poolid, pve.PoolACLPath(poolid)),
-					Rollback: "pvectl pool rm " + poolid,
+					Rollback: "pvecli pool rm " + poolid,
 					Verify:   "relecture de GET /pools?poolid=" + poolid,
 				},
 
@@ -249,7 +249,7 @@ Endpoint : DELETE /api2/json/pools?poolid={poolid}`,
 				Path:   pve.PoolPath() + "?poolid=" + poolid,
 				Effect: fmt.Sprintf("supprime le pool %s et les ACL posées sur %s", poolid, pve.PoolACLPath(poolid)),
 				Verify: "relecture de GET /pools",
-				Rollback: "pvectl pool create " + poolid +
+				Rollback: "pvecli pool create " + poolid +
 					" — mais les ACL qu'il portait sont à reposer une par une",
 			}
 
@@ -270,8 +270,8 @@ Endpoint : DELETE /api2/json/pools?poolid={poolid}`,
 						return service.State{}, fmt.Errorf(
 							"le pool %s n'est pas vide — %s.\n"+
 								"Le nœud refuse de supprimer un pool peuplé.\n"+
-								"  · sortir les membres puis supprimer :  pvectl pool rm %s --force\n"+
-								"  · les sortir seulement :               pvectl pool remove %s --vmid …",
+								"  · sortir les membres puis supprimer :  pvecli pool rm %s --force\n"+
+								"  · les sortir seulement :               pvecli pool remove %s --vmid …",
 							poolid, memberList(members), poolid, poolid)
 					}
 					if len(members) > 0 {
@@ -390,9 +390,9 @@ Endpoint : PUT /api2/json/pools (delete=1)`
 				Delete: remove, AllowMove: allowMove,
 			}
 
-			verb, reverse := "ajoute", "pvectl pool remove "+poolid
+			verb, reverse := "ajoute", "pvecli pool remove "+poolid
 			if remove {
-				verb, reverse = "sort", "pvectl pool add "+poolid
+				verb, reverse = "sort", "pvecli pool add "+poolid
 			}
 
 			runner := newRunner(cmd, client)

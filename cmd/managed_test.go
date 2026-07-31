@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvectl/internal/testutil"
+	"github.com/MakFly/pvecli/internal/testutil"
 	"github.com/spf13/cobra"
 )
 
@@ -68,12 +68,12 @@ func TestNoGuestWriteCommandEscapesTheOwnershipGuard(t *testing.T) {
 		if c.Flags().Lookup("dry-run") == nil {
 			return
 		}
-		path := strings.TrimPrefix(c.CommandPath(), "pvectl ")
+		path := strings.TrimPrefix(c.CommandPath(), "pvecli ")
 		if _, exempt := notDeclaredByTerraform[path]; exempt {
 			return
 		}
 		if c.Flags().Lookup("force-unmanaged") == nil {
-			t.Errorf("« pvectl %s » écrit sans garde de propriété : "+
+			t.Errorf("« pvecli %s » écrit sans garde de propriété : "+
 				"ajoute addOwnershipFlag(c) et un owner.check() dans son pre-read, "+
 				"ou inscris-la dans notDeclaredByTerraform en disant pourquoi", path)
 		}
@@ -96,7 +96,7 @@ func TestEveryExemptionNamesARealCommand(t *testing.T) {
 
 	for path, why := range notDeclaredByTerraform {
 		c, _, err := root.Find(strings.Split(path, " "))
-		if err != nil || c.CommandPath() != "pvectl "+path {
+		if err != nil || c.CommandPath() != "pvecli "+path {
 			t.Errorf("l'exemption « %s » (%s) ne correspond à aucune commande", path, why)
 		}
 	}
@@ -112,7 +112,7 @@ func managedRoutes() map[string]string {
 
 		// Deliberately routed: if a guard failed to fire, the write would
 		// succeed rather than 404, and the test would be proving the wrong
-		// thing — that the node refused, not that pvectl did.
+		// thing — that the node refused, not that pvecli did.
 		"PUT /api2/json/nodes/pve/qemu/210/config":                       "upid.json",
 		"POST /api2/json/nodes/pve/qemu/210/clone":                       "upid.json",
 		"POST /api2/json/nodes/pve/qemu/210/template":                    "upid.json",
@@ -198,7 +198,7 @@ func TestManagedTagIsConfigurable(t *testing.T) {
 			"current_context: test\ncontexts:\n  test:\n    iac:\n      managed_tag: "+tag+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		t.Setenv("PVECTL_CONFIG", path)
+		t.Setenv("PVECLI_CONFIG", path)
 
 		routes := managedRoutes()
 		routes["GET /api2/json/nodes/pve/tasks"] = "tasks.json"

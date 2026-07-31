@@ -7,7 +7,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/MakFly/pvectl/internal/config"
+	"github.com/MakFly/pvecli/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -38,7 +38,7 @@ func newConfigCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "config",
 		Short: "Gère le fichier de configuration local",
-		Long: `Crée, affiche et modifie ~/.config/pvectl/config.yaml.
+		Long: `Crée, affiche et modifie ~/.config/pvecli/config.yaml.
 
 La configuration effective se résout par couches, la première qui répond gagne :
 
@@ -65,8 +65,8 @@ func newConfigInitCmd() *cobra.Command {
 Les valeurs du contexte sont amorcées par le même layering que le reste de la
 CLI — un flag l'emporte sur l'environnement :
 
-  pvectl config init --endpoint https://pve.example:8006 --node pve
-  ` + config.EnvEndpoint + `=https://pve.example:8006 pvectl config init
+  pvecli config init --endpoint https://pve.example:8006 --node pve
+  ` + config.EnvEndpoint + `=https://pve.example:8006 pvecli config init
 
 Le contexte créé s'appelle « lab » sauf indication de --context.
 Le secret du token n'est jamais écrit dans le fichier.`,
@@ -124,8 +124,8 @@ func newConfigShowCmd() *cobra.Command {
 résolution des couches, pas le contenu brut du fichier. La colonne de droite
 donne la couche gagnante, ce qui rend le layering observable :
 
-  pvectl config show
-  ` + config.EnvEndpoint + `=https://autre:8006 pvectl config show
+  pvecli config show
+  ` + config.EnvEndpoint + `=https://autre:8006 pvecli config show
 
 Le secret du token n'est jamais affiché, seulement sa présence.`,
 		Args: usage(cobra.NoArgs),
@@ -184,8 +184,8 @@ func newConfigSetCmd() *cobra.Command {
 
 Clés acceptées : ` + strings.Join(config.WritableKeys, ", ") + `
 
-  pvectl config set endpoint https://pve.example:8006
-  pvectl config set tls.fingerprint 9F:3D:1A:55:...
+  pvecli config set endpoint https://pve.example:8006
+  pvecli config set tls.fingerprint 9F:3D:1A:55:...
 
 « token_secret » est refusé : ce n'est pas un oubli, voir le message d'erreur.`,
 		Args: usage(cobra.ExactArgs(2)),
@@ -220,7 +220,7 @@ func writeKey(cmd *cobra.Command, key, value string) (string, error) {
 		name = v
 	}
 	if name == "" {
-		return "", fmt.Errorf("aucun contexte courant dans %s — lance d'abord « pvectl config init »", path)
+		return "", fmt.Errorf("aucun contexte courant dans %s — lance d'abord « pvecli config init »", path)
 	}
 	target, ok := f.Contexts[name]
 	if !ok || target == nil {

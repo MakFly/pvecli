@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/spf13/cobra"
 )
 
@@ -115,7 +115,7 @@ Endpoints : GET /version · /cluster/status · /nodes · /access/permissions`,
 func warnings(tokenID string, mode pve.TrustMode) []string {
 	var out []string
 	if mode == pve.TrustNone {
-		out = append(out, "vérification TLS désactivée — épingle l'empreinte : pvectl config trust")
+		out = append(out, "vérification TLS désactivée — épingle l'empreinte : pvecli config trust")
 	}
 	if strings.HasPrefix(tokenID, "root@pam") {
 		out = append(out, "token porté par root@pam — utilise une identité dédiée avec le rôle minimal")

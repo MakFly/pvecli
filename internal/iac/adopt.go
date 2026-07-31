@@ -23,13 +23,13 @@ func Adopt(l Live, isContainer bool) string {
 	name := ResourceName(l.Name, l.VMID)
 
 	var b strings.Builder
-	fmt.Fprintf(&b, `# Généré par « pvectl iac adopt %d ». À RELIRE, pas à appliquer tel quel.
+	fmt.Fprintf(&b, `# Généré par « pvecli iac adopt %d ». À RELIRE, pas à appliquer tel quel.
 #
 #   1. colle ces deux blocs dans main.tf
 #   2. terraform plan    → ajuste le code jusqu'à « No changes »
 #   3. terraform apply   → la ressource entre dans le state, sans être recréée
 #   4. tague-la pour que la garde de propriété la protège :
-#        pvectl %s set %d --tags lab,terraform,managed --force-unmanaged
+#        pvecli %s set %d --tags lab,terraform,managed --force-unmanaged
 #
 # L'étape 2 est la seule qui compte. L'import n'enregistre la ressource que si
 # le code décrit EXACTEMENT l'existant ; tant que « plan » propose un
@@ -107,17 +107,17 @@ func Adopt(l Live, isContainer bool) string {
 	return b.String()
 }
 
-// missingPieces names, in the generated file, what pvectl deliberately did not
+// missingPieces names, in the generated file, what pvecli deliberately did not
 // guess.
 //
 // These are the attributes that decide whether `terraform plan` converges. The
 // cloud-init drive above all: every VM cloned from a cloud-init template
 // carries an ide2 volume that lives under `initialization`, not under `disk`.
 // Omit it and the first plan proposes to delete it — which reads like a bug in
-// pvectl and is in fact the import doing its job.
+// pvecli and is in fact the import doing its job.
 func missingPieces(l Live, isContainer bool) string {
 	var b strings.Builder
-	b.WriteString("\n  # À COMPLÉTER À LA MAIN — pvectl ne devine pas ces blocs :\n")
+	b.WriteString("\n  # À COMPLÉTER À LA MAIN — pvecli ne devine pas ces blocs :\n")
 	if isContainer {
 		b.WriteString("  #   operating_system { template_file_id = … }   obligatoire, et illisible depuis l'API\n")
 		if l.Name != "" {

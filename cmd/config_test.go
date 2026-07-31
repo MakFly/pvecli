@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvectl/internal/config"
+	"github.com/MakFly/pvecli/internal/config"
 )
 
 // seedConfig writes a config file in a temp dir and returns its path.
@@ -29,7 +29,7 @@ contexts:
 `
 
 func TestConfigInitCreatesFileFromFlags(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "pvectl", "config.yaml")
+	path := filepath.Join(t.TempDir(), "pvecli", "config.yaml")
 
 	_, _, err := run(t, "config", "init",
 		"--config", path,

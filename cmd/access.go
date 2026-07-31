@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/MakFly/pvectl/internal/output"
-	"github.com/MakFly/pvectl/internal/pve"
-	"github.com/MakFly/pvectl/internal/service"
+	"github.com/MakFly/pvecli/internal/output"
+	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/MakFly/pvecli/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -91,7 +91,7 @@ Endpoint : GET /api2/json/access/permissions`,
 
 			if len(rows.Cells) == 0 && path != "" {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
-					"aucun privilège sur « %s » — vérifie la propagation de l'ACL parente :\n  pvectl access acl ls\n", path)
+					"aucun privilège sur « %s » — vérifie la propagation de l'ACL parente :\n  pvecli access acl ls\n", path)
 			}
 
 			describeTokenSeparation(cmd, client)
@@ -123,8 +123,8 @@ func answerCan(cmd *cobra.Command, perms map[string]map[string]int, path, priv s
 	return &exitError{
 		code: 1,
 		msg: fmt.Sprintf("privilège %s absent sur %s — pose l'ACL qui le donne :\n"+
-			"  pvectl access role ls | grep %s\n"+
-			"  pvectl access acl set --path %s --role <rôle> --token <token>",
+			"  pvecli access role ls | grep %s\n"+
+			"  pvecli access acl set --path %s --role <rôle> --token <token>",
 			priv, path, strings.SplitN(priv, ".", 2)[0], path),
 	}
 }
@@ -390,7 +390,7 @@ Endpoint : GET /api2/json/access/acl`,
 					"aucune ACL VISIBLE — le nœud ne montre que celles que tu as le droit de\n"+
 						"modifier. Il en existe probablement d'autres. Il faut Sys.Audit sur /access\n"+
 						"(ou Permissions.Modify) pour les voir toutes :\n"+
-						"  pvectl access whoami --path /access\n")
+						"  pvecli access whoami --path /access\n")
 			}
 
 			rows := output.Rows{Headers: []string{"CHEMIN", "TYPE", "IDENTITÉ", "RÔLE", "PROPAGE"}}
@@ -465,7 +465,7 @@ Endpoint : PUT /api2/json/access/acl`,
 					msg: "Administrator sur « / » donne tout, partout, y compris le droit de\n" +
 						"modifier les ACL — c'est root@pam avec un autre nom.\n" +
 						"L'alternative est presque toujours un rôle ciblé sur un chemin précis :\n" +
-						"  pvectl access acl set --path /vms --role PVEVMAdmin --token …\n" +
+						"  pvecli access acl set --path /vms --role PVEVMAdmin --token …\n" +
 						"Si c'est vraiment ce que tu veux : --i-know-what-im-doing",
 				}
 			}
@@ -544,7 +544,7 @@ Endpoint : PUT /api2/json/access/acl`,
 
 	f := c.Flags()
 	f.StringVar(&change.Path, "path", "", "chemin ACL, ex. /vms/120")
-	f.StringVar(&change.Role, "role", "", "rôle à attribuer — vois « pvectl access role show »")
+	f.StringVar(&change.Role, "role", "", "rôle à attribuer — vois « pvecli access role show »")
 	f.StringVar(&change.User, "user", "", "utilisateur cible, ex. automation@pve")
 	f.StringVar(&change.Token, "token", "", "token cible, ex. automation@pve!pvectl")
 	f.StringVar(&change.Group, "group", "", "groupe cible")
@@ -558,9 +558,9 @@ Endpoint : PUT /api2/json/access/acl`,
 
 func rollbackACL(change pve.ACLChange) string {
 	if change.Delete {
-		return fmt.Sprintf("pvectl access acl set --path %s --role %s …", change.Path, change.Role)
+		return fmt.Sprintf("pvecli access acl set --path %s --role %s …", change.Path, change.Role)
 	}
-	return fmt.Sprintf("pvectl access acl set --path %s --role %s … --delete", change.Path, change.Role)
+	return fmt.Sprintf("pvecli access acl set --path %s --role %s … --delete", change.Path, change.Role)
 }
 
 // printACLBefore shows the state of the targeted path, so the diff is visible
@@ -657,7 +657,7 @@ LE SECRET N'EST RENDU QU'UNE FOIS. Il part seul sur la sortie standard, sans
 décoration, pour que « > /tmp/secret » produise un fichier utilisable. Il n'est
 jamais réaffichable : PVE ne le stocke que haché.
 
-  pvectl access token create automation@pve terraform --expire 2026-12-31 > s
+  pvecli access token create automation@pve terraform --expire 2026-12-31 > s
 
 --expire est OBLIGATOIRE, sauf --no-expire explicite : un token qui ne meurt
 jamais doit être un choix, pas un oubli. L'API attend des secondes depuis
@@ -708,7 +708,7 @@ Endpoint : POST /api2/json/access/users/{userid}/token/{tokenid}`,
 					Path:     pve.TokenPath(userID, tokenID),
 					Payload:  o.Values(),
 					Effect:   fmt.Sprintf("token « %s » délivré à %s, expire %s", tokenID, userID, expiryLabel(epoch)),
-					Rollback: fmt.Sprintf("pvectl access token rm %s %s", userID, tokenID),
+					Rollback: fmt.Sprintf("pvecli access token rm %s %s", userID, tokenID),
 					Verify:   "relecture du token (sans son secret)",
 				},
 				PreRead: func(ctx context.Context) (service.State, error) {

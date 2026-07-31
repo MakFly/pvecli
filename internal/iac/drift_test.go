@@ -3,7 +3,7 @@ package iac
 import (
 	"testing"
 
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/pve"
 )
 
 func boolp(b bool) *bool { return &b }

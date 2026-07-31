@@ -140,7 +140,7 @@ des deux hypothèses est vraie — depuis la console du nœud :
   openssl x509 -in /etc/pve/local/pve-ssl.pem -noout -fingerprint -sha256
 
 Si le changement est légitime :
-  pvectl config trust`, e.Host, formatFingerprint(e.Want), formatFingerprint(e.Got))
+  pvecli config trust`, e.Host, formatFingerprint(e.Want), formatFingerprint(e.Got))
 
 	case CertAbsent:
 		return fmt.Sprintf("%s n'a présenté aucun certificat", e.Host)
@@ -151,7 +151,7 @@ Si le changement est légitime :
 C'est attendu pour un lab. Plutôt que de désactiver la vérification, épingle
 son empreinte une fois pour toutes :
 
-  pvectl config trust
+  pvecli config trust
 
 La vérification restera réelle : ce certificat précis, ou aucun.
 (%v)`, e.Host, e.Err)

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/MakFly/pvectl/internal/output"
-	"github.com/MakFly/pvectl/internal/pve"
-	"github.com/MakFly/pvectl/internal/service"
+	"github.com/MakFly/pvecli/internal/output"
+	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/MakFly/pvecli/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -76,7 +76,7 @@ func newRunner(cmd *cobra.Command, client *pve.Client) *service.Runner {
 // cliGroup names the command family an operator actually types.
 //
 // The API calls the QEMU family "qemu"; this CLI calls it "vm". A message
-// suggesting « pvectl qemu shutdown 900 » hands over a command that does not
+// suggesting « pvecli qemu shutdown 900 » hands over a command that does not
 // exist — the guest type is not a substitute for the command name.
 func cliGroup(kind pve.GuestType) string {
 	if kind == pve.TypeLXC {

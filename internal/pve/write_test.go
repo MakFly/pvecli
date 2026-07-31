@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvectl/internal/testutil"
+	"github.com/MakFly/pvecli/internal/testutil"
 )
 
 // A mutation answers with a UPID, and the token name inside it carries a '!' —

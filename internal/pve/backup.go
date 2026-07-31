@@ -104,7 +104,7 @@ func (c *Client) Backup(ctx context.Context, node string, o VZDumpOptions) (stri
 // whether it is worth restoring.
 type Archive struct {
 	Volume
-	// Storage is filled by pvectl: the content listing does not repeat it, but
+	// Storage is filled by pvecli: the content listing does not repeat it, but
 	// a listing spanning several storages is unreadable without it.
 	Storage string `json:"storage"`
 }
@@ -193,7 +193,7 @@ type RestoreOptions struct {
 	Archive string
 	Storage string
 	// Overwrite maps to `force`: it allows the restoration to replace an
-	// existing guest. Without it, PVE refuses — and so does pvectl, earlier.
+	// existing guest. Without it, PVE refuses — and so does pvecli, earlier.
 	Overwrite bool
 	Start     bool
 }

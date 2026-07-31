@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -69,7 +69,7 @@ func confirm(cmd *cobra.Command, question string) error {
 // stdinIsTerminal reports whether stdin is an actual terminal.
 //
 // The tempting shortcut — os.Stdin.Stat() and a test on os.ModeCharDevice — is
-// wrong, and this project found out the practical way: `pvectl config trust
+// wrong, and this project found out the practical way: `pvecli config trust
 // </dev/null` sailed straight past it, because /dev/null *is* a character
 // device. The command then asked its question into the void and failed on the
 // read instead of refusing up front. term.IsTerminal issues the ioctl that

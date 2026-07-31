@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/MakFly/pvectl/internal/config"
-	"github.com/MakFly/pvectl/internal/iac"
-	"github.com/MakFly/pvectl/internal/output"
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/config"
+	"github.com/MakFly/pvecli/internal/iac"
+	"github.com/MakFly/pvecli/internal/output"
+	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/spf13/cobra"
 )
 
@@ -26,7 +26,7 @@ func newIaCCmd() *cobra.Command {
 		Short: "Fait le pont entre l'API PVE et Terraform / Ansible",
 		Long: `Relie le nœud aux deux outils qui déclarent réellement l'infrastructure.
 
-pvectl ne remplace ni Terraform ni Ansible. Il fait les deux choses qu'aucun des
+pvecli ne remplace ni Terraform ni Ansible. Il fait les deux choses qu'aucun des
 deux ne sait faire seul :
 
   · il OBSERVE l'écart entre le déclaré et le réel  (iac state, iac drift)
@@ -34,8 +34,8 @@ deux ne sait faire seul :
 
 Les répertoires du dépôt d'infrastructure se déclarent une fois :
 
-  pvectl config set iac.terraform_dir /chemin/vers/infra/terraform
-  pvectl config set iac.ansible_dir   /chemin/vers/infra/ansible`,
+  pvecli config set iac.terraform_dir /chemin/vers/infra/terraform
+  pvecli config set iac.ansible_dir   /chemin/vers/infra/ansible`,
 		Args: usage(cobra.NoArgs),
 	}
 	c.AddCommand(newIaCInventoryCmd(), newIaCStateCmd(), newIaCDriftCmd(), newIaCAdoptCmd())
@@ -207,7 +207,7 @@ func writeTempInventory(inv *iac.Inventory, endpoint string) (path string, clean
 	// The .yml suffix is not cosmetic: Ansible picks its inventory plugin from
 	// the file extension, and a file with none is parsed by the `ini` plugin,
 	// which reads this YAML as a list of hostnames with very strange names.
-	f, err := os.CreateTemp("", "pvectl-inventory-*.yml")
+	f, err := os.CreateTemp("", "pvecli-inventory-*.yml")
 	if err != nil {
 		return "", func() {}, err
 	}
@@ -262,7 +262,7 @@ func pingHosts(cmd *cobra.Command, ping iac.Tool, inventory string) error {
 // runPlaybook streams a run and parses its recap at the same time.
 //
 // Both halves are needed: the operator must see Ansible's own output, unfiltered
-// and in real time, and pvectl must read the PLAY RECAP to measure idempotence.
+// and in real time, and pvecli must read the PLAY RECAP to measure idempotence.
 // Capturing without streaming would replace a live run with a silence.
 func runPlaybook(cmd *cobra.Command, play iac.Tool, args []string, label string) ([]iac.Recap, error) {
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\n$ ansible-playbook %s   (%s)\n\n", strings.Join(args, " "), label)
@@ -329,14 +329,14 @@ func verifyHosts(cmd *cobra.Command, inv *iac.Inventory, template, want string) 
 //
 // An operator who has already exported the variable keeps their value: they
 // may well be driving Terraform with a different, more privileged identity
-// than the one pvectl reads with, and silently substituting ours would be a
+// than the one pvecli reads with, and silently substituting ours would be a
 // surprise in the one place surprises are expensive.
 func terraformEnv(cmd *cobra.Command, eff *config.Effective) []string {
 	const varName = "TF_VAR_proxmox_api_token"
 
 	if existing := os.Getenv(varName); existing != "" {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
-			"%s est déjà exporté : pvectl le laisse tel quel et n'impose pas son propre token.\n", varName)
+			"%s est déjà exporté : pvecli le laisse tel quel et n'impose pas son propre token.\n", varName)
 		return nil
 	}
 	if eff.TokenSecret == "" {
@@ -362,16 +362,16 @@ func warnIfTokenInTfvars(cmd *cobra.Command, dir string) {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 			"AVERTISSEMENT : %s contient « proxmox_api_token ».\n"+
 				"  Un secret dans un fichier finit committé, sauvegardé, ou lu par un autre\n"+
-				"  processus. pvectl passe le sien par l'environnement :\n"+
-				"    export %s=…   puis   pvectl iac apply\n", name, config.EnvTokenSecret)
+				"  processus. pvecli passe le sien par l'environnement :\n"+
+				"    export %s=…   puis   pvecli iac apply\n", name, config.EnvTokenSecret)
 	}
 }
 
 // preflight is the check `terraform apply` does not do: that the node is
-// reachable with the identity pvectl was given, and that nothing has drifted
+// reachable with the identity pvecli was given, and that nothing has drifted
 // since the last apply.
 //
-// The order matters, and it is the order of `pvectl doctor`: a drift report
+// The order matters, and it is the order of `pvecli doctor`: a drift report
 // built on a failed API call would be a list of "orphans" that are simply
 // unreachable.
 func preflight(cmd *cobra.Command, client *pve.Client, eff *config.Effective) error {
@@ -380,7 +380,7 @@ func preflight(cmd *cobra.Command, client *pve.Client, eff *config.Effective) er
 
 	v, verr := client.Version(cmd.Context())
 	if verr != nil {
-		return fmt.Errorf("le nœud n'est pas joignable avec cette identité — « pvectl doctor » le détaille :\n%w", verr)
+		return fmt.Errorf("le nœud n'est pas joignable avec cette identité — « pvecli doctor » le détaille :\n%w", verr)
 	}
 	_, _ = fmt.Fprintf(err, "  ✓ %s — PVE %s, TLS %s, identité %s\n", eff.Endpoint, v.Version, client.TrustMode(), eff.TokenID)
 
@@ -422,7 +422,7 @@ func preflight(cmd *cobra.Command, client *pve.Client, eff *config.Effective) er
 // postflight re-reads through the API what Terraform says it did.
 //
 // This is the step that makes the wrapper worth having. Terraform reports
-// success when its provider's write returned without error; pvectl asks the
+// success when its provider's write returned without error; pvecli asks the
 // node, independently, what is actually there — the same "HTTP 200 is an
 // acceptance, not a success" rule the rest of this CLI lives by.
 func postflight(cmd *cobra.Command, client *pve.Client, eff *config.Effective) error {
@@ -459,21 +459,21 @@ func postflight(cmd *cobra.Command, client *pve.Client, eff *config.Effective) e
 	}
 
 	if report := iac.Compare(declared, live).Only(iac.KindModified); report.HasDrift() {
-		return fmt.Errorf("apply terminé, mais %d ressource(s) divergent encore du déclaré — pvectl iac drift", len(report.Findings))
+		return fmt.Errorf("apply terminé, mais %d ressource(s) divergent encore du déclaré — pvecli iac drift", len(report.Findings))
 	}
 	_, _ = fmt.Fprintln(errW, "aucune dérive après apply : le déclaré et le réel concordent.")
 	return nil
 }
 
 const wrapperNote = `
-pvectl NE REMPLACE PAS TERRAFORM et ne le masque pas. Il l'exécute dans
+pvecli NE REMPLACE PAS TERRAFORM et ne le masque pas. Il l'exécute dans
 « iac.terraform_dir », relaie sa sortie et son code de retour tels quels, et
 ajoute les deux vérifications que Terraform ne fait pas lui-même : que le nœud
 est joignable avec l'identité attendue avant, et ce que l'API contient vraiment
 après.
 
 CODE DE SORTIE : celui de terraform, pas la table du PRD §7.5. Un script qui
-teste le statut de « terraform plan » continue de fonctionner derrière pvectl.
+teste le statut de « terraform plan » continue de fonctionner derrière pvecli.
 
 Le secret du token part par l'environnement (TF_VAR_proxmox_api_token), jamais
 dans terraform.tfvars.`
@@ -502,7 +502,7 @@ func newIaCApplyCmd() *cobra.Command {
               appliqué, sans rien appliquer.
   --yes       ne demande pas confirmation, et passe -auto-approve à terraform.
 
-Sans --yes, DEUX confirmations sont demandées : celle de pvectl, puis celle de
+Sans --yes, DEUX confirmations sont demandées : celle de pvecli, puis celle de
 terraform. Ce n'est pas une redondance — la première porte sur ce que le
 pré-vol vient d'afficher (dérive comprise), la seconde sur le plan lui-même.` + wrapperNote,
 		Args: cobra.ArbitraryArgs,
@@ -584,7 +584,7 @@ et recréer la ressource qu'on voulait justement préserver.
 
 La séquence, et l'étape qui compte :
 
-  1. pvectl iac adopt 211 >> /tmp/adopt.tf
+  1. pvecli iac adopt 211 >> /tmp/adopt.tf
   2. coller les deux blocs dans main.tf
   3. terraform plan    → tant que « plan » propose un changement, c'est le CODE
                          qui est faux, pas le nœud. On ajuste jusqu'à
@@ -620,7 +620,7 @@ Endpoints : GET /api2/json/cluster/resources
 				}
 			}
 			if target == nil {
-				return fmt.Errorf("aucun guest %d sur le cluster — pvectl guest ls", vmid)
+				return fmt.Errorf("aucun guest %d sur le cluster — pvecli guest ls", vmid)
 			}
 
 			kind := pve.TypeQEMU
@@ -806,7 +806,7 @@ Ressources lues : ` + iac.TypeVM + `
                   ` + iac.TypeContainer + `
 
 Le dossier interrogé est « iac.terraform_dir » :
-  pvectl config set iac.terraform_dir /chemin/vers/infra/terraform`,
+  pvecli config set iac.terraform_dir /chemin/vers/infra/terraform`,
 		Args: usage(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts, err := renderOptions(cmd)
@@ -1006,7 +1006,7 @@ func buildInventory(ctx context.Context, client *pve.Client, o inventoryOptions)
 			// The agent not answering is a fact about this guest, not a
 			// failure of the command: one silent VM must not deprive the
 			// inventory of the twenty that did answer.
-			inv.Skip(r.VMID, r.Name, "agent QEMU muet — « pvectl vm agent ifaces "+fmt.Sprint(r.VMID)+" » dit pourquoi")
+			inv.Skip(r.VMID, r.Name, "agent QEMU muet — « pvecli vm agent ifaces "+fmt.Sprint(r.VMID)+" » dit pourquoi")
 			continue
 		}
 		ip := firstAgentIPv4(ifaces)
@@ -1018,7 +1018,7 @@ func buildInventory(ctx context.Context, client *pve.Client, o inventoryOptions)
 		user := o.user
 		if user == "" {
 			// cloud-init's ciuser is the account the image was built to be
-			// reached as. Reading it beats defaulting to whoever runs pvectl.
+			// reached as. Reading it beats defaulting to whoever runs pvecli.
 			if cfg, err := client.GuestConfig(ctx, r.Node, pve.TypeQEMU, r.VMID); err == nil {
 				user = cfg.String("ciuser")
 			}
@@ -1061,7 +1061,7 @@ func firstAgentIPv4(ifaces []pve.AgentInterface) string {
 }
 
 // reportInventory puts everything that is not the document itself on stderr, so
-// that `pvectl iac inventory > inv.yml` writes a clean file.
+// that `pvecli iac inventory > inv.yml` writes a clean file.
 func reportInventory(cmd *cobra.Command, inv *iac.Inventory) {
 	err := cmd.ErrOrStderr()
 

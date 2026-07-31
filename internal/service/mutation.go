@@ -15,7 +15,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/pve"
 )
 
 // State is the minimum the pipeline needs to know about a target, before and
@@ -155,7 +155,7 @@ func (r *Runner) Run(ctx context.Context, m Mutation) (*State, error) {
 		return nil, fmt.Errorf("%s n'existe pas", m.Target)
 	}
 	if before.Lock != "" {
-		return nil, fmt.Errorf("%s est verrouillé (lock=%s) — une tâche est en cours :\n  pvectl task ls --running",
+		return nil, fmt.Errorf("%s est verrouillé (lock=%s) — une tâche est en cours :\n  pvecli task ls --running",
 			m.Target, before.Lock)
 	}
 

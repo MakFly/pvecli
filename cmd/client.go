@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/MakFly/pvectl/internal/log"
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/log"
+	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/spf13/cobra"
 )
 
@@ -49,7 +49,7 @@ func newClient(cmd *cobra.Command) (*pve.Client, error) {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 			"AVERTISSEMENT : vérification TLS désactivée (--insecure). "+
 				"La connexion à %s n'est pas authentifiée.\n"+
-				"Épingle plutôt l'empreinte, une fois : pvectl config trust\n",
+				"Épingle plutôt l'empreinte, une fois : pvecli config trust\n",
 			eff.Endpoint)
 	}
 

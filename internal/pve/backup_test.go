@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MakFly/pvectl/internal/testutil"
+	"github.com/MakFly/pvecli/internal/testutil"
 )
 
 // remove=1 is the API's default and it means "apply the retention policy",

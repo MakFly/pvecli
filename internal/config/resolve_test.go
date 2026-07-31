@@ -11,14 +11,14 @@ import (
 // TestMain clears the PVE_* variables before anything runs.
 //
 // Without it these tests pass or fail depending on whether the developer has
-// sourced ~/.config/pvectl/env in the shell they typed `make test` in — which
+// sourced ~/.config/pvecli/env in the shell they typed `make test` in — which
 // is precisely what happened, on a package that had been fixed everywhere
 // except here.
 func TestMain(m *testing.M) {
 	for _, name := range []string{EnvEndpoint, EnvTokenID, EnvTokenSecret, EnvInsecure} {
 		_ = os.Unsetenv(name)
 	}
-	_ = os.Unsetenv("PVECTL_CONFIG")
+	_ = os.Unsetenv("PVECLI_CONFIG")
 	os.Exit(m.Run())
 }
 

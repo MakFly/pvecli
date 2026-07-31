@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvectl/internal/testutil"
+	"github.com/MakFly/pvecli/internal/testutil"
 )
 
 func TestAgentInterfacesDecodeRealAnswer(t *testing.T) {

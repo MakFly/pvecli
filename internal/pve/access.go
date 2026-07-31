@@ -148,7 +148,7 @@ func pathDepth(path string) int {
 // ACLChange is one modification of the access control list.
 //
 // The API names its parameters in the PLURAL — roles, users, tokens, groups —
-// because one call can carry several. pvectl exposes one at a time: an ACL
+// because one call can carry several. pvecli exposes one at a time: an ACL
 // change that touches four identities at once is a change nobody can review.
 type ACLChange struct {
 	Path      string

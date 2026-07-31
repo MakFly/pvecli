@@ -10,9 +10,9 @@ import (
 	"os/exec"
 )
 
-// Tool is an external command pvectl wraps rather than replaces.
+// Tool is an external command pvecli wraps rather than replaces.
 //
-// The whole design of the `iac` commands rests on one rule: pvectl does not
+// The whole design of the `iac` commands rests on one rule: pvecli does not
 // reimplement Terraform or Ansible, and does not paraphrase them either. It
 // runs them in the right directory, with the right environment, and relays
 // their output and exit code untouched. Anything else would produce a CLI that
@@ -22,7 +22,7 @@ type Tool struct {
 	Name string
 	// Dir is the working directory. The tools are directory-scoped: terraform
 	// reads the .tf files where it stands, ansible reads ansible.cfg the same
-	// way. Running them from pvectl's own cwd would silently use another
+	// way. Running them from pvecli's own cwd would silently use another
 	// configuration.
 	Dir string
 	// Env is appended to the inherited environment.
@@ -49,14 +49,14 @@ func installHint(name string) string {
 	return ""
 }
 
-// MissingToolError is a binary pvectl needs and cannot find.
+// MissingToolError is a binary pvecli needs and cannot find.
 type MissingToolError struct {
 	Name string
 }
 
 func (e *MissingToolError) Error() string {
 	msg := fmt.Sprintf("« %s » est introuvable dans le PATH.\n\n"+
-		"pvectl n'implémente pas %s, il l'encadre : sans le binaire, il n'y a rien à encadrer.", e.Name, e.Name)
+		"pvecli n'implémente pas %s, il l'encadre : sans le binaire, il n'y a rien à encadrer.", e.Name, e.Name)
 	if h := installHint(e.Name); h != "" {
 		msg += "\n\n" + h
 	}
@@ -77,10 +77,10 @@ func (e *MissingDirError) Error() string {
 	if e.Path == "" {
 		return fmt.Sprintf("« %s » n'est pas configuré.\n\n"+
 			"Indique où vit le dépôt d'infrastructure :\n"+
-			"  pvectl config set %s /chemin/vers/le/dossier", e.Key, e.Key)
+			"  pvecli config set %s /chemin/vers/le/dossier", e.Key, e.Key)
 	}
 	return fmt.Sprintf("« %s » pointe vers %s, qui n'est pas un dossier accessible.\n\n"+
-		"  pvectl config set %s /chemin/vers/le/dossier", e.Key, e.Path, e.Key)
+		"  pvecli config set %s /chemin/vers/le/dossier", e.Key, e.Path, e.Key)
 }
 
 // ExitCode: a misconfiguration is a usage error, not a node failure.
@@ -88,9 +88,9 @@ func (e *MissingDirError) ExitCode() int { return 2 }
 
 // ExitError carries the wrapped tool's own exit code.
 //
-// `pvectl iac plan` exits with what terraform exited with, deliberately: a CI
+// `pvecli iac plan` exits with what terraform exited with, deliberately: a CI
 // job that branches on `terraform plan`'s status must keep working when the
-// call is put behind pvectl. This is the one place where the exit table of PRD
+// call is put behind pvecli. This is the one place where the exit table of PRD
 // §7.5 does not apply, and the help says so.
 type ExitError struct {
 	Tool string
@@ -153,7 +153,7 @@ func (t Tool) Run(ctx context.Context, stdout, stderr io.Writer, args ...string)
 	return err
 }
 
-// Output captures stdout for the commands whose result pvectl parses, and lets
+// Output captures stdout for the commands whose result pvecli parses, and lets
 // stderr through so the tool can still explain itself.
 func (t Tool) Output(ctx context.Context, stderr io.Writer, args ...string) ([]byte, error) {
 	var buf bytes.Buffer

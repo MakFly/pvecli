@@ -2,7 +2,7 @@
 //
 // Discipline it enforces: data goes to stdout, everything else — progress,
 // warnings, confirmation prompts — goes to stderr, so that
-// `pvectl vm ls -o json | jq` always works.
+// `pvecli vm ls -o json | jq` always works.
 //
 // The table|json|yaml renderers land with PVX-010; what lives here today is the
 // handful of conversions every listing needs.

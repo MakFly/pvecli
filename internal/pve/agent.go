@@ -57,7 +57,7 @@ PVE ne connaît pas l'adresse IP d'une VM en DHCP : seul l'agent invité peut la
 lui dire. Deux conditions, toutes les deux nécessaires :
 
   · côté PVE   : agent=1 dans la configuration
-                 pvectl vm set ` + strconv.Itoa(e.VMID) + ` --set agent=1
+                 pvecli vm set ` + strconv.Itoa(e.VMID) + ` --set agent=1
   · côté invité : le paquet installé ET démarré
                  sudo apt install -y qemu-guest-agent
                  sudo systemctl enable --now qemu-guest-agent

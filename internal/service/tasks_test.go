@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/pve"
 )
 
 // fakeTaskAPI answers a scripted sequence of task states, and records which
@@ -107,7 +107,7 @@ func TestWaitSaysTheTaskSurvivesACancelledWait(t *testing.T) {
 	if !strings.Contains(err.Error(), "PAS été annulée") {
 		t.Errorf("le message doit dire que la tâche continue : %v", err)
 	}
-	if !strings.Contains(err.Error(), "pvectl task wait") {
+	if !strings.Contains(err.Error(), "pvecli task wait") {
 		t.Errorf("le message doit rendre le moyen de reprendre le suivi : %v", err)
 	}
 }

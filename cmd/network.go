@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/MakFly/pvectl/internal/output"
-	"github.com/MakFly/pvectl/internal/pve"
-	"github.com/MakFly/pvectl/internal/service"
+	"github.com/MakFly/pvecli/internal/output"
+	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/MakFly/pvecli/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -97,8 +97,8 @@ Endpoint : GET /api2/json/nodes/{node}/network`,
 			if cfg.Pending() && opts.Format == output.Table {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 					"\nModifications réseau EN ATTENTE sur %s — écrites, pas appliquées :\n\n%s\n"+
-						"  pvectl net apply %s     les applique (coupe l'accès si elles sont fausses)\n"+
-						"  pvectl net revert %s    les jette\n",
+						"  pvecli net apply %s     les applique (coupe l'accès si elles sont fausses)\n"+
+						"  pvecli net revert %s    les jette\n",
 					node, indent(cfg.Changes, "  "), node, node)
 			}
 			return nil
@@ -195,11 +195,11 @@ rattraper, parce que les deux passent par le réseau qu'on vient de casser.
   ou un écran et un clavier physiquement branchés sur la machine.
 
 La confirmation exige de retaper le nom du nœud. Ce n'est pas une formalité :
-c'est le moment prévu pour relire le diff affiché par « pvectl net ls ».
+c'est le moment prévu pour relire le diff affiché par « pvecli net ls ».
 
 Le geste de secours, à connaître avant d'en avoir besoin :
 
-  pvectl net revert <node>    jette les modifications, tant qu'elles ne sont
+  pvecli net revert <node>    jette les modifications, tant qu'elles ne sont
                               pas appliquées
 
 Endpoint : PUT /api2/json/nodes/{node}/network`,

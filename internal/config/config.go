@@ -38,7 +38,7 @@ type Context struct {
 	TLS      TLS    `yaml:"tls,omitempty"`
 	IaC      IaC    `yaml:"iac,omitempty"`
 
-	// DetectedVersion is written by `pvectl version`, not by a human. It is
+	// DetectedVersion is written by `pvecli version`, not by a human. It is
 	// what later stories consult to decide whether an endpoint exists in this
 	// PVE release — an endpoint "that does not exist" is usually an endpoint
 	// from another version.
@@ -61,8 +61,8 @@ const DefaultManagedTag = "managed"
 // IaC locates the infrastructure-as-code repository this node is driven from.
 //
 // The two directories are paths on the operator's machine, not on the node:
-// `pvectl` runs terraform and ansible locally and talks to PVE over the API.
-// Storing them in the config is what lets `pvectl iac …` be typed from
+// `pvecli` runs terraform and ansible locally and talks to PVE over the API.
+// Storing them in the config is what lets `pvecli iac …` be typed from
 // anywhere instead of only from inside the repository.
 type IaC struct {
 	TerraformDir string `yaml:"terraform_dir,omitempty"`
@@ -126,7 +126,7 @@ func SetKey(c *Context, key, value string) error {
 	case "iac.managed_tag":
 		c.IaC.ManagedTag = value
 
-	// Settable but not advertised in WritableKeys: `pvectl version` writes it,
+	// Settable but not advertised in WritableKeys: `pvecli version` writes it,
 	// a human has no reason to.
 	case "detected_version":
 		c.DetectedVersion = value

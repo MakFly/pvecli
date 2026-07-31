@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/MakFly/pvectl/internal/config"
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/config"
+	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/spf13/cobra"
 )
 
@@ -41,7 +41,7 @@ refusée, et renvoie vers le propriétaire. Les changements d'état d'exécution
 (start, stop, shutdown) restent autorisés — Terraform ne déclare pas si une VM
 tourne, seulement comment elle est faite.`
 
-// managedOp is one guarded write: what pvectl was asked to do, and what the
+// managedOp is one guarded write: what pvecli was asked to do, and what the
 // owner's equivalent is. The refusal names the alternative, because a guard
 // that only says no teaches the operator to reach for --force-unmanaged.
 type managedOp struct {

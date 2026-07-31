@@ -5,8 +5,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/MakFly/pvectl/internal/output"
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/output"
+	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/spf13/cobra"
 )
 
@@ -158,7 +158,7 @@ func targetNode(cmd *cobra.Command, args []string) (string, error) {
 		return "", err
 	}
 	if eff.Node == "" {
-		return "", fmt.Errorf("aucun nœud indiqué et aucun nœud par défaut — lance « pvectl node ls », ou passe --node")
+		return "", fmt.Errorf("aucun nœud indiqué et aucun nœud par défaut — lance « pvecli node ls », ou passe --node")
 	}
 	return eff.Node, nil
 }

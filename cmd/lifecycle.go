@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/MakFly/pvectl/internal/output"
-	"github.com/MakFly/pvectl/internal/pve"
-	"github.com/MakFly/pvectl/internal/service"
+	"github.com/MakFly/pvecli/internal/output"
+	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/MakFly/pvecli/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -77,7 +77,7 @@ Endpoint : POST /api2/json/nodes/{node}/qemu/{vmid}/clone`,
 					Path:     pve.ClonePath(pve.TypeQEMU, node, src),
 					Payload:  params,
 					Effect:   fmt.Sprintf("VM %d créée depuis %d (%s)", o.NewID, src, cloneKind(o.Full)),
-					Rollback: fmt.Sprintf("pvectl vm rm %d", o.NewID),
+					Rollback: fmt.Sprintf("pvecli vm rm %d", o.NewID),
 					Verify:   fmt.Sprintf("relecture de la configuration de %d", o.NewID),
 				},
 				// Two conditions, both checked before anything is written: the
@@ -215,7 +215,7 @@ Endpoint : POST /api2/json/nodes/{node}/qemu/{vmid}/template`,
 						return service.State{}, err
 					}
 					if st.Status == "running" {
-						return service.State{}, fmt.Errorf("la VM %d tourne — arrête-la d'abord :\n  pvectl vm shutdown %d", vmid, vmid)
+						return service.State{}, fmt.Errorf("la VM %d tourne — arrête-la d'abord :\n  pvecli vm shutdown %d", vmid, vmid)
 					}
 					return guestState(st), nil
 				},

@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/MakFly/pvectl/internal/output"
-	"github.com/MakFly/pvectl/internal/pve"
-	"github.com/MakFly/pvectl/internal/service"
+	"github.com/MakFly/pvecli/internal/output"
+	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/MakFly/pvecli/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -40,7 +40,7 @@ func checkStorageAccepts(ctx context.Context, client *pve.Client, node, storage,
 	}
 
 	if !found {
-		return fmt.Errorf("le stockage %q n'existe pas sur %s — vois « pvectl storage ls »", storage, node)
+		return fmt.Errorf("le stockage %q n'existe pas sur %s — vois « pvecli storage ls »", storage, node)
 	}
 	if len(eligible) == 0 {
 		return fmt.Errorf("aucun stockage de %s n'accepte le type « %s »", node, content)
@@ -132,7 +132,7 @@ Endpoint : POST /api2/json/nodes/{node}/storage/{storage}/download-url`,
 				Path:     pve.DownloadPath(node, storage),
 				Payload:  o.Values(),
 				Effect:   fmt.Sprintf("le nœud %s télécharge %s vers %s", node, o.URL, storage),
-				Rollback: fmt.Sprintf("pvectl storage rm %s %s:%s/%s", storage, storage, o.Content, o.Filename),
+				Rollback: fmt.Sprintf("pvecli storage rm %s %s:%s/%s", storage, storage, o.Content, o.Filename),
 				Verify:   "le volume doit apparaître dans le contenu du stockage",
 			}, func(ctx context.Context) (string, error) {
 				return client.DownloadURL(ctx, node, storage, o)
@@ -230,7 +230,7 @@ Endpoint : POST /api2/json/nodes/{node}/storage/{storage}/upload`,
 				Path:     pve.UploadPath(node, storage),
 				Payload:  o.Values(),
 				Effect:   fmt.Sprintf("envoie %s (%s) vers %s", path, output.Bytes(info.Size()), storage),
-				Rollback: fmt.Sprintf("pvectl storage rm %s %s:%s/%s", storage, storage, o.Content, o.Filename),
+				Rollback: fmt.Sprintf("pvecli storage rm %s %s:%s/%s", storage, storage, o.Content, o.Filename),
 				Verify:   "le volume doit apparaître dans le contenu du stockage",
 			}
 
@@ -334,7 +334,7 @@ func newStorageRemoveCmd() *cobra.Command {
 
 Le second argument est un VOLID — « local:iso/debian.iso » — et pas un chemin
 de système de fichiers. C'est la forme que tous les autres endpoints attendent,
-et « pvectl storage content » est là pour te la donner.
+et « pvecli storage content » est là pour te la donner.
 
 Il n'y a pas de corbeille. Un disque de VM supprimé ici est perdu, et une
 archive supprimée ici est la sauvegarde que tu n'auras pas au moment où tu en
@@ -385,7 +385,7 @@ Endpoint : DELETE /api2/json/nodes/{node}/storage/{storage}/content/{volume}`,
 					}
 					return service.State{}, fmt.Errorf(
 						"aucun volume %q sur %s — un volid s'écrit « %s:iso/fichier.iso ».\n"+
-							"  pvectl storage content %s", volid, storage, storage, storage)
+							"  pvecli storage content %s", volid, storage, storage, storage)
 				},
 				Write: func(ctx context.Context) (string, error) {
 					return client.DeleteVolume(ctx, node, storage, volid)

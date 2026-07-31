@@ -69,7 +69,7 @@ func TestLoadMissingFileIsEmpty(t *testing.T) {
 }
 
 func TestSavePermissions(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "pvectl")
+	dir := filepath.Join(t.TempDir(), "pvecli")
 	path := filepath.Join(dir, "config.yaml")
 
 	f := &File{
@@ -119,7 +119,7 @@ func TestSaveTightensExistingPermissions(t *testing.T) {
 }
 
 func TestPathPrecedence(t *testing.T) {
-	t.Setenv("PVECTL_CONFIG", "/tmp/depuis-env.yaml")
+	t.Setenv("PVECLI_CONFIG", "/tmp/depuis-env.yaml")
 
 	got, err := Path("/tmp/depuis-flag.yaml")
 	if err != nil {
@@ -130,7 +130,7 @@ func TestPathPrecedence(t *testing.T) {
 	}
 
 	if got, err = Path(""); err != nil || got != "/tmp/depuis-env.yaml" {
-		t.Errorf("Path = %q (%v), PVECTL_CONFIG doit gagner sur le défaut", got, err)
+		t.Errorf("Path = %q (%v), PVECLI_CONFIG doit gagner sur le défaut", got, err)
 	}
 }
 

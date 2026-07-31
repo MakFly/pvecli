@@ -1,11 +1,11 @@
-// Command pvectl administers a Proxmox VE node through its REST API.
+// Command pvecli administers a Proxmox VE node through its REST API.
 package main
 
 import (
 	"errors"
 	"os"
 
-	"github.com/MakFly/pvectl/cmd"
+	"github.com/MakFly/pvecli/cmd"
 )
 
 // exitCoder is implemented by errors that know which exit code of PRD §7.5

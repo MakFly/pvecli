@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/MakFly/pvectl/internal/output"
-	"github.com/MakFly/pvectl/internal/pve"
-	"github.com/MakFly/pvectl/internal/service"
+	"github.com/MakFly/pvecli/internal/output"
+	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/MakFly/pvecli/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -142,7 +142,7 @@ Endpoint : POST /api2/json/nodes/{node}/{type}/{vmid}/snapshot`,
 					Path:     pve.SnapshotPath(kind, node, vmid, "", ""),
 					Payload:  payload,
 					Effect:   fmt.Sprintf("snapshot « %s » du guest %d", name, vmid),
-					Rollback: fmt.Sprintf("pvectl vm snapshot rm %d %s", vmid, name),
+					Rollback: fmt.Sprintf("pvecli vm snapshot rm %d %s", vmid, name),
 					Verify:   "relecture de la liste des snapshots",
 				},
 				PreRead: func(ctx context.Context) (service.State, error) {
@@ -261,7 +261,7 @@ Endpoint : POST /api2/json/nodes/{node}/{type}/{vmid}/snapshot/{nom}/rollback`,
 							return guestState(st), nil
 						}
 					}
-					return service.State{}, fmt.Errorf("le snapshot « %s » n'existe pas sur le guest %d — pvectl vm snapshot ls %d", name, vmid, vmid)
+					return service.State{}, fmt.Errorf("le snapshot « %s » n'existe pas sur le guest %d — pvecli vm snapshot ls %d", name, vmid, vmid)
 				},
 				Write: func(ctx context.Context) (string, error) {
 					return client.RollbackSnapshot(ctx, node, kind, vmid, name)

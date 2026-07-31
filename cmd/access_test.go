@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvectl/internal/pve"
-	"github.com/MakFly/pvectl/internal/testutil"
+	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/MakFly/pvecli/internal/testutil"
 )
 
 // `--can` exists to be used in a shell `if`. Its contract is therefore an exit

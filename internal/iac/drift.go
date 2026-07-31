@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/pve"
 )
 
 // Live is a guest as the node reports it, reduced to the attributes Terraform
@@ -85,7 +85,7 @@ type Report struct {
 }
 
 // HasDrift drives the exit code: 0 when the declared and the real agree, 1
-// when they do not. That is what makes `pvectl iac drift` usable as a
+// when they do not. That is what makes `pvecli iac drift` usable as a
 // scheduled job — drift is only a problem you fix if you are told about it.
 func (r Report) HasDrift() bool { return len(r.Findings) > 0 }
 

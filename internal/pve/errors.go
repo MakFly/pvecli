@@ -80,7 +80,7 @@ func (e *APIError) Hint() string {
 	case http.StatusForbidden:
 		return fmt.Sprintf(`Privilège manquant sur « %s » — le nœud sait qui tu es et refuse.
 Changer de token ne corrigera rien : c'est une ACL qu'il faut corriger.
-  · quels droits ai-je réellement :  pvectl access whoami
+  · quels droits ai-je réellement :  pvecli access whoami
   · l'ACL est-elle posée sur le bon chemin, et propage-t-elle ?
   · privilege separation : avec privsep=1, les droits effectifs du token sont
     l'INTERSECTION de ceux du token et de ceux de son utilisateur. Une ACL sur
@@ -97,7 +97,7 @@ Attention à la version : un paramètre présent en 8.x peut avoir disparu en 9.
 
 	case http.StatusNotFound:
 		return `Ressource absente. Dans l'ordre de probabilité :
-  · le nom du nœud est faux         → pvectl node ls
+  · le nom du nœud est faux         → pvecli node ls
   · le vmid ou le storage n'existe pas
   · l'endpoint n'existe pas DANS CETTE VERSION de PVE — c'est le cas le plus
     fréquent et le plus déroutant. Vérifie contre le schéma de la version
@@ -105,7 +105,7 @@ Attention à la version : un paramètre présent en 8.x peut avoir disparu en 9.
 
 	case http.StatusInternalServerError:
 		if strings.Contains(strings.ToLower(e.Message), "lock") {
-			return "Ressource verrouillée — une tâche est probablement en cours :\n  pvectl task ls --running"
+			return "Ressource verrouillée — une tâche est probablement en cours :\n  pvecli task ls --running"
 		}
 		return "Erreur interne du nœud — le message ci-dessus vient de PVE ; le log de tâche en dira plus."
 

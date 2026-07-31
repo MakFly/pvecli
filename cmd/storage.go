@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MakFly/pvectl/internal/output"
+	"github.com/MakFly/pvecli/internal/output"
 	"github.com/spf13/cobra"
 )
 

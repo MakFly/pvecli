@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/MakFly/pvectl/internal/output"
-	"github.com/MakFly/pvectl/internal/pve"
-	"github.com/MakFly/pvectl/internal/service"
+	"github.com/MakFly/pvecli/internal/output"
+	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/MakFly/pvecli/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -175,14 +175,14 @@ func effectOf(a pve.GuestAction, vmid int) string {
 }
 
 // rollbackOf names the command that undoes this one. It carries the guest
-// family: a plan that tells a container operator to run `pvectl vm shutdown`
+// family: a plan that tells a container operator to run `pvecli vm shutdown`
 // hands them a command that will not work.
 func rollbackOf(kind pve.GuestType, a pve.GuestAction, vmid int) string {
 	switch a.TargetStatus() {
 	case "running":
-		return fmt.Sprintf("pvectl %s shutdown %d", cliGroup(kind), vmid)
+		return fmt.Sprintf("pvecli %s shutdown %d", cliGroup(kind), vmid)
 	case "stopped":
-		return fmt.Sprintf("pvectl %s start %d", cliGroup(kind), vmid)
+		return fmt.Sprintf("pvecli %s start %d", cliGroup(kind), vmid)
 	default:
 		return "—"
 	}

@@ -25,7 +25,7 @@ func TestCTOptionsTranslateToOptionStrings(t *testing.T) {
 		OSTemplate: "local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst",
 		Hostname:   "web", Cores: 1, Memory: 512,
 		RootFS: "local-lvm:8", Bridge: "vmbr0", IP: "192.0.2.120/24",
-		Gateway: "192.0.2.1", Tags: "lab,pvectl",
+		Gateway: "192.0.2.1", Tags: "lab,pvecli",
 	}.Values()
 
 	// name= is not decoration: PVE rejects a container interface without it.
@@ -36,7 +36,7 @@ func TestCTOptionsTranslateToOptionStrings(t *testing.T) {
 		t.Errorf("rootfs = %q, want %q", got, want)
 	}
 	// Tags are semicolon-separated in PVE, comma-separated for a human.
-	if got, want := v.Get("tags"), "lab;pvectl"; got != want {
+	if got, want := v.Get("tags"), "lab;pvecli"; got != want {
 		t.Errorf("tags = %q, want %q", got, want)
 	}
 

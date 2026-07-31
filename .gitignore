@@ -1,5 +1,5 @@
 # Binaire compilé par `make build`
-/pvectl
+/pvecli
 
 # Artefacts de `make release` — reconstructibles à l'identique depuis un commit
 # (-trimpath, version et commit injectés), donc rien à versionner ici.

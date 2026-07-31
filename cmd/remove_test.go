@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvectl/internal/config"
-	"github.com/MakFly/pvectl/internal/testutil"
+	"github.com/MakFly/pvecli/internal/config"
+	"github.com/MakFly/pvecli/internal/testutil"
 )
 
 // point aims the CLI at a replay server, so a whole command can be exercised

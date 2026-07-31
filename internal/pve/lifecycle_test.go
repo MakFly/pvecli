@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/MakFly/pvectl/internal/testutil"
+	"github.com/MakFly/pvecli/internal/testutil"
 )
 
 // The payload is what --dry-run shows and what gets sent: they are the same

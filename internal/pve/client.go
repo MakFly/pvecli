@@ -83,13 +83,13 @@ func (c *Client) TokenID() string { return c.tokenID }
 // had nothing to authenticate with.
 func New(o Options) (*Client, error) {
 	if o.Endpoint == "" {
-		return nil, fmt.Errorf("aucun endpoint configuré — lance « pvectl config init --endpoint https://…:8006 » ou exporte PVE_API_URL")
+		return nil, fmt.Errorf("aucun endpoint configuré — lance « pvecli config init --endpoint https://…:8006 » ou exporte PVE_API_URL")
 	}
 	if o.TokenID == "" {
 		return nil, &AuthError{
 			Reason: "aucun identifiant de token configuré",
 			Hint: "Définis-le dans la configuration ou dans l'environnement :\n" +
-				"  pvectl config set token_id 'automation@pve!pvectl'\n" +
+				"  pvecli config set token_id 'automation@pve!pvectl'\n" +
 				"  export PVE_API_TOKEN_ID='automation@pve!pvectl'",
 		}
 	}
@@ -101,7 +101,7 @@ func New(o Options) (*Client, error) {
 				"l'historique du shell).\n\n" +
 				"  export PVE_API_TOKEN_SECRET=\"…\"\n\n" +
 				"Sur macOS, s'il est rangé dans le trousseau :\n" +
-				"  export PVE_API_TOKEN_SECRET=\"$(security find-generic-password -a pvectl -s pvectl-token -w)\"",
+				"  export PVE_API_TOKEN_SECRET=\"$(security find-generic-password -a pvecli -s pvecli-token -w)\"",
 		}
 	}
 
@@ -178,7 +178,7 @@ func (c *Client) post(ctx context.Context, e endpoint, args []string, body url.V
 // 'DELETE'` from PVE's own HTTP server, before the schema layer is ever
 // reached. It is worth its own helper because that 501 is indistinguishable
 // from the one a wrong path produces: the message points at the method, the
-// cause is the body, and `pvectl vm rm --purge` failed that way until PVX-031
+// cause is the body, and `pvecli vm rm --purge` failed that way until PVX-031
 // exercised it against the lab.
 func (c *Client) del(ctx context.Context, e endpoint, args []string, query url.Values, out any) error {
 	path := e.Path(args...)

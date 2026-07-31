@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/spf13/cobra"
 )
 
@@ -57,20 +57,20 @@ pour retrouver l'ID ».
 INSTALLATION
 
   zsh
-    pvectl completion zsh > "${fpath[1]}/_pvectl" && exec zsh
+    pvecli completion zsh > "${fpath[1]}/_pvecli" && exec zsh
 
     Si la complétion n'est pas déjà active, ajoute d'abord à ~/.zshrc :
       autoload -U compinit && compinit
 
   bash
-    pvectl completion bash > /usr/local/etc/bash_completion.d/pvectl   # macOS
-    pvectl completion bash > /etc/bash_completion.d/pvectl             # Linux
+    pvecli completion bash > /usr/local/etc/bash_completion.d/pvecli   # macOS
+    pvecli completion bash > /etc/bash_completion.d/pvecli             # Linux
 
   fish
-    pvectl completion fish > ~/.config/fish/completions/pvectl.fish
+    pvecli completion fish > ~/.config/fish/completions/pvecli.fish
 
   powershell
-    pvectl completion powershell | Out-String | Invoke-Expression`
+    pvecli completion powershell | Out-String | Invoke-Expression`
 }
 
 // ---------------------------------------------------------------- inventory
@@ -212,7 +212,7 @@ func completionCachePath(endpoint, tokenID string) string {
 	if err != nil {
 		dir = os.TempDir()
 	}
-	return filepath.Join(dir, "pvectl", "completion-"+hex.EncodeToString(sum[:8])+".json")
+	return filepath.Join(dir, "pvecli", "completion-"+hex.EncodeToString(sum[:8])+".json")
 }
 
 func readCompletionCache(path string) (*completionInventory, error) {

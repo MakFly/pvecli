@@ -1,4 +1,4 @@
-BINARY  := pvectl
+BINARY  := pvecli
 VERSION ?= dev
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT)
@@ -69,7 +69,7 @@ cover: ## Couverture, avec un seuil qui fait échouer la cible
 integration: ## Tests d'intégration contre un VRAI nœud — VMID 900-999 uniquement
 	@test -n "$$PVE_API_URL" || { \
 		echo "PVE_API_URL n'est pas défini — les tests d'intégration parlent à un vrai nœud."; \
-		echo "  source ~/.config/pvectl/env"; \
+		echo "  source ~/.config/pvecli/env"; \
 		exit 2; }
 	go test -tags integration -count=1 -v ./...
 
@@ -91,12 +91,12 @@ install-node: ## Copie le binaire linux sur le nœud et vérifie qu'il s'exécut
 	@echo "--- vérification depuis le nœud ---"
 	ssh $(NODEUSER)@$(NODE) '$(NODEPATH) --version'
 
-install: build ## Installe pvectl sur le POSTE, et avec lui l'agent IA dans ~/.claude
+install: build ## Installe pvecli sur le POSTE, et avec lui l'agent IA dans ~/.claude
 	install -d $(PREFIX)/bin
 	install -m 0755 $(BINARY) $(PREFIX)/bin/$(BINARY)
 	@echo "--- agent Claude Code ---"
 	@$(PREFIX)/bin/$(BINARY) ai install || { \
-		echo "l'agent n'a pas pu être installé — « pvectl ai install --force » après relecture"; \
+		echo "l'agent n'a pas pu être installé — « pvecli ai install --force » après relecture"; \
 		exit 1; }
 	@echo "--- vérification ---"
 	$(PREFIX)/bin/$(BINARY) --version

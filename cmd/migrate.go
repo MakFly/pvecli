@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MakFly/pvectl/internal/output"
-	"github.com/MakFly/pvectl/internal/pve"
-	"github.com/MakFly/pvectl/internal/service"
+	"github.com/MakFly/pvecli/internal/output"
+	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/MakFly/pvecli/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -102,7 +102,7 @@ Endpoint : POST /api2/json/nodes/{node}/%s/{vmid}/migrate`, noun, moveHelp, owne
 					Path:    pve.MigratePath(kind, node, vmid),
 					Payload: o.Values(kind),
 					Effect:  fmt.Sprintf("déplace %s de %s vers %s", target, node, o.Target),
-					Rollback: fmt.Sprintf("pvectl %s migrate %s --target %s — une migration se refait dans l'autre sens,\n"+
+					Rollback: fmt.Sprintf("pvecli %s migrate %s --target %s — une migration se refait dans l'autre sens,\n"+
 						"           elle ne s'annule pas", cliGroup(kind), target, node),
 					Verify: "le guest doit être vu sur " + o.Target,
 				},
@@ -219,7 +219,7 @@ func checkMigrationTarget(ctx context.Context, client *pve.Client, node, target 
 				"  1. un second nœud, joint au même cluster (« pvecm add ») ;\n"+
 				"  2. un stockage partagé visible des deux côtés — sinon chaque disque\n"+
 				"     local devra être recopié (--with-local-disks) ;\n"+
-				"  3. de quoi relire l'état des deux côtés :  pvectl cluster status\n\n"+
+				"  3. de quoi relire l'état des deux côtés :  pvecli cluster status\n\n"+
 				"La commande reste ici, prête, pour le jour où le second nœud arrive.",
 				node),
 		}

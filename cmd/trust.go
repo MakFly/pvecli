@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +31,7 @@ certificat qui change est un incident, pas une routine de script.`,
 				return err
 			}
 			if eff.Endpoint == "" {
-				return fmt.Errorf("aucun endpoint configuré — lance « pvectl config init --endpoint https://…:8006 »")
+				return fmt.Errorf("aucun endpoint configuré — lance « pvecli config init --endpoint https://…:8006 »")
 			}
 
 			cert, err := pve.FetchCertificate(cmd.Context(), eff.Endpoint)

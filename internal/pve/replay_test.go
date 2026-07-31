@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvectl/internal/testutil"
+	"github.com/MakFly/pvecli/internal/testutil"
 )
 
 // replay wires a client onto answers captured from the lab. Replaying real
@@ -145,7 +145,7 @@ func TestGuestsAreSortedByVMID(t *testing.T) {
 	}
 }
 
-// The VM created end to end by pvectl, replayed. This fixture is the proof that
+// The VM created end to end by pvecli, replayed. This fixture is the proof that
 // the shapes above are the node's, not the developer's.
 func TestGuestConfigDecodesRealVM(t *testing.T) {
 	c := replay(t, map[string]string{

@@ -15,7 +15,7 @@ import (
 //
 // The point is not to avoid installing Terraform — it is installed on the
 // machine this was written on. It is to make the argv observable: the criterion
-// of PVX-043 is that pvectl NEVER writes the state, and the only way to prove a
+// of PVX-043 is that pvecli NEVER writes the state, and the only way to prove a
 // negative here is to look at every command actually issued.
 func stubTerraform(t *testing.T, stdout string, exitCode int) (argvFile string) {
 	t.Helper()
@@ -278,7 +278,7 @@ func TestEmptyStateIsNotAReadFailure(t *testing.T) {
 	if !errors.As(err, &empty) {
 		t.Fatalf("un state vide doit être une erreur distincte : %v", err)
 	}
-	if !strings.Contains(err.Error(), "pvectl iac apply") {
+	if !strings.Contains(err.Error(), "pvecli iac apply") {
 		t.Errorf("le message doit dire quoi faire ensuite : %v", err)
 	}
 }
@@ -293,7 +293,7 @@ func TestUnconfiguredDirectoryIsNamedAsSuch(t *testing.T) {
 	if !errors.As(err, &missing) {
 		t.Fatalf("attendu MissingDirError, reçu %v", err)
 	}
-	if !strings.Contains(err.Error(), "pvectl config set iac.terraform_dir") {
+	if !strings.Contains(err.Error(), "pvecli config set iac.terraform_dir") {
 		t.Errorf("le message doit donner la commande qui corrige : %v", err)
 	}
 }

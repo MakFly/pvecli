@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MakFly/pvectl/internal/output"
-	"github.com/MakFly/pvectl/internal/pve"
-	"github.com/MakFly/pvectl/internal/service"
+	"github.com/MakFly/pvecli/internal/output"
+	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/MakFly/pvecli/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -89,7 +89,7 @@ Endpoint : POST /api2/json/nodes/{node}/qemu`,
 					Path:     pve.CreatePath(pve.TypeQEMU, node),
 					Payload:  params,
 					Effect:   fmt.Sprintf("création de la VM %d sur %s", vmid, node),
-					Rollback: fmt.Sprintf("pvectl vm rm %d", vmid),
+					Rollback: fmt.Sprintf("pvecli vm rm %d", vmid),
 					Verify:   fmt.Sprintf("relecture de la configuration de %d", vmid),
 				},
 				// Creation inverts the pre-read: what must be true is that the
@@ -126,7 +126,7 @@ Endpoint : POST /api2/json/nodes/{node}/qemu`,
 				if _, err := client.SetGuestStatus(cmd.Context(), node, pve.TypeQEMU, vmid, pve.ActionStart, nil); err != nil {
 					return err
 				}
-				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "démarrage demandé — suis-le avec « pvectl task ls --running »\n")
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "démarrage demandé — suis-le avec « pvecli task ls --running »\n")
 			}
 
 			rows := output.Rows{Headers: []string{"CHAMP", "VALEUR"}, Cells: [][]string{
@@ -322,7 +322,7 @@ Endpoint : DELETE /api2/json/nodes/{node}/%s/{vmid}`, noun, forceHint, ownership
 					running = st.Status == "running"
 					if running && !o.Force {
 						return service.State{}, fmt.Errorf(
-							"le guest %d tourne — arrête-le d'abord :\n  pvectl %s shutdown %d\nou passe --force, qui l'arrête avant de détruire", vmid, cliGroup(kind), vmid)
+							"le guest %d tourne — arrête-le d'abord :\n  pvecli %s shutdown %d\nou passe --force, qui l'arrête avant de détruire", vmid, cliGroup(kind), vmid)
 					}
 					return guestState(st), nil
 				},

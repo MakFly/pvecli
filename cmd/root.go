@@ -6,8 +6,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/MakFly/pvectl/internal/config"
-	"github.com/MakFly/pvectl/internal/pve"
+	"github.com/MakFly/pvecli/internal/config"
+	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/spf13/cobra"
 )
 
@@ -16,14 +16,14 @@ import (
 // a deterministic --version output.
 func NewRootCmd(version, commit string) *cobra.Command {
 	root := &cobra.Command{
-		Use:   "pvectl",
+		Use:   "pvecli",
 		Short: "CLI d'administration Proxmox VE",
-		Long: `pvectl pilote un nœud Proxmox VE via son API REST (/api2/json).
+		Long: `pvecli pilote un nœud Proxmox VE via son API REST (/api2/json).
 
 Authentification par token d'API, TLS vérifié, sortie table|json|yaml.
 
-  pvectl --version    version de ce binaire
-  pvectl version      version du nœud PVE interrogé`,
+  pvecli --version    version de ce binaire
+  pvecli version      version du nœud PVE interrogé`,
 
 		// No Run/RunE: with no argument Cobra prints the help and returns nil,
 		// which main turns into exit code 0.
@@ -38,7 +38,7 @@ Authentification par token d'API, TLS vérifié, sortie table|json|yaml.
 	// -v shorthand for it: -v / -vv belong to --verbose (PVX-009).
 	root.Flags().Bool("version", false, "version de ce binaire (pas celle du nœud PVE)")
 	root.Version = version
-	root.SetVersionTemplate(fmt.Sprintf("pvectl %s (commit %s)\n", version, commit))
+	root.SetVersionTemplate(fmt.Sprintf("pvecli %s (commit %s)\n", version, commit))
 
 	// Persistent, so every present and future subcommand inherits them. These
 	// are the top layer of the resolution order in PRD §7.1; --insecure and

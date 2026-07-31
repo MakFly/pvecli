@@ -39,7 +39,7 @@ func (t Task) Running() bool { return t.EndTime == 0 && t.Status != "stopped" }
 // "OK" is not the only successful exitstatus. A task that did its work and
 // noticed something on the way reports "WARNINGS: n" — a container creation
 // warning about systemd nesting, for instance. Treating that as a failure made
-// pvectl announce a failed creation over a container that existed, and skip the
+// pvecli announce a failed creation over a container that existed, and skip the
 // post-read that would have shown it. Observed on the lab at PVX-030.
 func (t Task) Succeeded() bool {
 	return t.ExitStatus == "OK" || strings.HasPrefix(t.ExitStatus, "WARNINGS:")
