@@ -1,0 +1,51 @@
+{
+  "data": [
+    {
+      "cgroup-mode": 2,
+      "cpu": 0.000989792762140427,
+      "disk": 4446089216,
+      "id": "node/pve",
+      "level": "",
+      "maxcpu": 16,
+      "maxdisk": 100861726720,
+      "maxmem": 33041162240,
+      "mem": 2149031936,
+      "node": "pve",
+      "status": "online",
+      "type": "node",
+      "uptime": 9873
+    },
+    {
+      "content": "iso,vztmpl,backup,import",
+      "disk": 4446089216,
+      "id": "storage/pve/local",
+      "maxdisk": 100861726720,
+      "node": "pve",
+      "plugintype": "dir",
+      "shared": 0,
+      "status": "available",
+      "storage": "local",
+      "type": "storage"
+    },
+    {
+      "content": "rootdir,images",
+      "disk": 0,
+      "id": "storage/pve/local-lvm",
+      "maxdisk": 852878163968,
+      "node": "pve",
+      "plugintype": "lvmthin",
+      "shared": 0,
+      "status": "available",
+      "storage": "local-lvm",
+      "type": "storage"
+    },
+    {
+      "id": "network/pve/zone/localnetwork",
+      "network": "localnetwork",
+      "network-type": "zone",
+      "node": "pve",
+      "status": "ok",
+      "type": "network"
+    }
+  ]
+}

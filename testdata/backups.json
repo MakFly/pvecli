@@ -1,0 +1,14 @@
+{
+    "data": [
+        {
+            "vmid": 212,
+            "size": 532474818,
+            "content": "backup",
+            "subtype": "qemu",
+            "format": "vma.zst",
+            "ctime": 1785522993,
+            "notes": "PRA PVX-040 lab-app-02",
+            "volid": "local:backup/vzdump-qemu-212-2026_07_31-20_36_33.vma.zst"
+        }
+    ]
+}

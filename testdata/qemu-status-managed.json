@@ -1,0 +1,25 @@
+{
+  "data": {
+    "agent": 1,
+    "cpu": 0.00293809870684955,
+    "cpus": 2,
+    "disk": 0,
+    "diskread": 260547170,
+    "diskwrite": 108519936,
+    "ha": {
+      "managed": 0
+    },
+    "maxdisk": 21474836480,
+    "maxmem": 2147483648,
+    "mem": 409604096,
+    "name": "lab-app-01",
+    "netin": 17756,
+    "netout": 12630,
+    "pid": 32749,
+    "qmpstatus": "running",
+    "status": "running",
+    "tags": "lab;managed;terraform",
+    "uptime": 55,
+    "vmid": 210
+  }
+}

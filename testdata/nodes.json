@@ -1,0 +1,19 @@
+{
+  "data": [
+    {
+      "cpu": 0.00117581533510737,
+      "disk": 4446085120,
+      "id": "node/pve",
+      "level": "",
+      "maxcpu": 16,
+      "maxdisk": 100861726720,
+      "maxmem": 33041162240,
+      "mem": 2150776832,
+      "node": "pve",
+      "ssl_fingerprint": "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
+      "status": "online",
+      "type": "node",
+      "uptime": 9473
+    }
+  ]
+}

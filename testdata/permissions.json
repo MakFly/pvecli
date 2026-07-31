@@ -1,0 +1,119 @@
+{
+  "data": {
+    "/": {
+      "Datastore.Audit": 1,
+      "Mapping.Audit": 1,
+      "Pool.Audit": 1,
+      "SDN.Audit": 1,
+      "Sys.Audit": 1,
+      "VM.Audit": 1,
+      "VM.GuestAgent.Audit": 1
+    },
+    "/access": {
+      "Datastore.Audit": 1,
+      "Group.Allocate": 1,
+      "Mapping.Audit": 1,
+      "Pool.Audit": 1,
+      "Realm.AllocateUser": 1,
+      "SDN.Audit": 1,
+      "Sys.Audit": 1,
+      "User.Modify": 1,
+      "VM.Audit": 1,
+      "VM.GuestAgent.Audit": 1
+    },
+    "/access/groups": {
+      "Datastore.Audit": 1,
+      "Group.Allocate": 1,
+      "Mapping.Audit": 1,
+      "Pool.Audit": 1,
+      "Realm.AllocateUser": 1,
+      "SDN.Audit": 1,
+      "Sys.Audit": 1,
+      "User.Modify": 1,
+      "VM.Audit": 1,
+      "VM.GuestAgent.Audit": 1
+    },
+    "/nodes": {
+      "Datastore.Audit": 1,
+      "Mapping.Audit": 1,
+      "Pool.Audit": 1,
+      "SDN.Audit": 1,
+      "Sys.Audit": 1,
+      "VM.Audit": 1,
+      "VM.GuestAgent.Audit": 1
+    },
+    "/pool": {
+      "Datastore.Audit": 1,
+      "Mapping.Audit": 1,
+      "Pool.Audit": 1,
+      "SDN.Audit": 1,
+      "Sys.Audit": 1,
+      "VM.Audit": 1,
+      "VM.GuestAgent.Audit": 1
+    },
+    "/sdn": {
+      "Datastore.Audit": 1,
+      "Mapping.Audit": 1,
+      "Pool.Audit": 1,
+      "SDN.Audit": 1,
+      "Sys.Audit": 1,
+      "VM.Audit": 1,
+      "VM.GuestAgent.Audit": 1
+    },
+    "/sdn/zones": {
+      "Datastore.Audit": 1,
+      "Mapping.Audit": 1,
+      "Pool.Audit": 1,
+      "SDN.Audit": 1,
+      "Sys.Audit": 1,
+      "VM.Audit": 1,
+      "VM.GuestAgent.Audit": 1
+    },
+    "/sdn/zones/localnetwork": {
+      "SDN.Audit": 1,
+      "SDN.Use": 1
+    },
+    "/storage": {
+      "Datastore.Audit": 1,
+      "Mapping.Audit": 1,
+      "Pool.Audit": 1,
+      "SDN.Audit": 1,
+      "Sys.Audit": 1,
+      "VM.Audit": 1,
+      "VM.GuestAgent.Audit": 1
+    },
+    "/storage/local": {
+      "Datastore.AllocateSpace": 1,
+      "Datastore.Audit": 1
+    },
+    "/storage/local-lvm": {
+      "Datastore.AllocateSpace": 1,
+      "Datastore.Audit": 1
+    },
+    "/vms": {
+      "VM.Allocate": 1,
+      "VM.Audit": 1,
+      "VM.Backup": 1,
+      "VM.Clone": 1,
+      "VM.Config.CDROM": 1,
+      "VM.Config.CPU": 1,
+      "VM.Config.Cloudinit": 1,
+      "VM.Config.Disk": 1,
+      "VM.Config.HWType": 1,
+      "VM.Config.Memory": 1,
+      "VM.Config.Network": 1,
+      "VM.Config.Options": 1,
+      "VM.Console": 1,
+      "VM.GuestAgent.Audit": 1,
+      "VM.GuestAgent.FileRead": 1,
+      "VM.GuestAgent.FileSystemMgmt": 1,
+      "VM.GuestAgent.FileWrite": 1,
+      "VM.GuestAgent.Unrestricted": 1,
+      "VM.Migrate": 1,
+      "VM.PowerMgmt": 1,
+      "VM.Replicate": 1,
+      "VM.Snapshot": 1,
+      "VM.Snapshot.Rollback": 1
+    }
+  }
+}

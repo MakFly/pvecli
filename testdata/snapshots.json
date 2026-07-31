@@ -1,0 +1,17 @@
+{
+  "data": [
+    {
+      "description": "avant mise a jour nginx",
+      "name": "avant-maj",
+      "snaptime": 1785517820,
+      "vmstate": 0
+    },
+    {
+      "description": "You are here!",
+      "digest": "6b1a0f7c2d5e8934ab0c1f2e3d4a5b6c7d8e9f01",
+      "name": "current",
+      "parent": "avant-maj",
+      "running": 1
+    }
+  ]
+}

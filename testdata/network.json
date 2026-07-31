@@ -1,0 +1,62 @@
+{
+  "data": [
+    {
+      "active": 1,
+      "address": "203.0.113.10",
+      "autostart": 1,
+      "bridge_fd": "0",
+      "bridge_ports": "nic0",
+      "bridge_stp": "off",
+      "cidr": "203.0.113.10/24",
+      "families": [
+        "inet"
+      ],
+      "gateway": "203.0.113.10",
+      "iface": "vmbr0",
+      "method": "static",
+      "method6": "manual",
+      "netmask": "24",
+      "priority": 4,
+      "type": "bridge"
+    },
+    {
+      "families": [
+        "inet"
+      ],
+      "iface": "nic1",
+      "method": "manual",
+      "method6": "manual",
+      "priority": 5,
+      "type": "eth"
+    },
+    {
+      "altnames": [
+        "wlx106fd9b02eb3"
+      ],
+      "exists": 1,
+      "families": [
+        "inet"
+      ],
+      "iface": "wlp6s0",
+      "method": "manual",
+      "method6": "manual",
+      "type": "eth"
+    },
+    {
+      "active": 1,
+      "altnames": [
+        "enp5s0",
+        "enx1c834132b5a7"
+      ],
+      "exists": 1,
+      "families": [
+        "inet"
+      ],
+      "iface": "nic0",
+      "method": "manual",
+      "method6": "manual",
+      "priority": 3,
+      "type": "eth"
+    }
+  ]
+}

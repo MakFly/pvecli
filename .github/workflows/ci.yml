@@ -1,0 +1,99 @@
+# CI de pvectl — PVX-054.
+#
+# Elle n'appelle QUE des cibles du Makefile. C'est délibéré : ce qui casse en CI
+# doit se reproduire à l'identique en local avec la même commande, sinon on
+# passe la journée à deviner ce que le runner faisait de différent.
+#
+# Aucun accès au nœud. Les tests d'intégration vivent derrière le tag `integration`
+# et se lancent à la main (`make integration`), sur les VMID 900-999 réservés.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  # Appelable par release.yml. La publication REJOUE cette recette au lieu d'en
+  # copier les étapes : deux listes qui doivent rester identiques finissent
+  # toujours par diverger, et c'est la copie de la publication qui perdrait une
+  # vérification sans que personne ne le remarque.
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  # `github.workflow` fait partie du groupe pour que l'appel depuis release.yml
+  # n'atterrisse pas dans le même seau que le CI de la branche : sans lui, un
+  # push sur main pendant une publication annulerait la vérification de cette
+  # publication, et la release partirait sur un job tué.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Formatage
+        # gofmt ne fait pas partie de `make lint` parce qu'il RÉÉCRIT en local ;
+        # ici on vérifie seulement, et on nomme les fichiers fautifs.
+        run: |
+          unformatted="$(gofmt -l . | grep -v '^$' || true)"
+          if [ -n "$unformatted" ]; then
+            echo "fichiers non formatés :"
+            echo "$unformatted"
+            echo "corrige avec : make fmt"
+            exit 1
+          fi
+
+      # L'action pose le binaire (avec son cache) ET le lance. Elle est donc le
+      # premier passage ; `make lint` en dessous ajoute `go vet` et rejoue
+      # golangci-lint depuis le cache, en quelques secondes.
+      #
+      # LA VERSION EST ÉPINGLÉE, PAS « latest ». Deux raisons, toutes deux
+      # apprises au premier passage réel de cette CI :
+      #
+      #   · la v6 de l'action installe golangci-lint 1.x, qui ne comprend pas un
+      #     .golangci.yml en schéma v2 — « can't load config » ;
+      #   · golangci-lint refuse de tourner s'il a été compilé avec un Go plus
+      #     ancien que celui visé par go.mod (ici 1.26.4). « latest » côté action
+      #     ne veut donc pas dire « compatible ».
+      #
+      # Épingler la même version qu'en local est le seul moyen que « make lint »
+      # veuille dire la même chose des deux côtés.
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+          args: --timeout=5m
+
+      - name: Lint
+        run: make lint
+
+      - name: Tests
+        # Y compris les deux tests qui sont des garde-fous du projet et pas des
+        # tests d'unité : l'anti-fuite de secret (PVX-009) et la couverture
+        # d'API-MAP.md (PVX-017). Aucun des deux n'est skippable.
+        run: make test
+
+      - name: Couverture
+        run: make cover
+
+      - name: Compilation croisée
+        # Le binaire du nœud est un linux/amd64 statique : le vérifier ici évite
+        # de découvrir un problème de compilation croisée au moment de publier.
+        run: |
+          CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -trimpath -o /dev/null .
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -o /dev/null .
+
+      - name: Les tests d'intégration ne compilent pas par accident
+        # Le tag les tient hors de `go test ./...`. Ils doivent quand même
+        # COMPILER : un test d'intégration qui ne compile plus est un test que
+        # personne ne lancera plus, et qui ne le dira jamais.
+        run: go vet -tags integration ./...

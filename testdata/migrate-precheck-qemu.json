@@ -1,0 +1,38 @@
+{
+  "data": {
+    "allowed_nodes": [],
+    "has-dbus-vmstate": 1,
+    "local_disks": [
+      {
+        "cdrom": 1,
+        "drivename": "ide2",
+        "is_attached": 1,
+        "is_cloudinit": 1,
+        "is_tpmstate": 0,
+        "is_unused": 0,
+        "is_vmstate": 0,
+        "replicate": 1,
+        "shared": 0,
+        "volid": "local-lvm:vm-211-cloudinit"
+      },
+      {
+        "cdrom": 0,
+        "drivename": "scsi0",
+        "is_attached": 1,
+        "is_cloudinit": 0,
+        "is_tpmstate": 0,
+        "is_unused": 0,
+        "is_vmstate": 0,
+        "replicate": 1,
+        "shared": 0,
+        "size": 3221225472,
+        "volid": "local-lvm:vm-211-disk-0"
+      }
+    ],
+    "local_resources": [],
+    "mapped-resource-info": {},
+    "mapped-resources": [],
+    "not_allowed_nodes": {},
+    "running": 1
+  }
+}

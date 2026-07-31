@@ -1,0 +1,28 @@
+{
+  "data": [
+    {
+      "cpu": 0.00293809870684955,
+      "cpus": 2,
+      "disk": 0,
+      "maxdisk": 3221225472,
+      "maxmem": 2147483648,
+      "mem": 562384896,
+      "memhost": 562384896,
+      "name": "lab-app-01",
+      "netin": 17756,
+      "netout": 12630,
+      "pid": 32749,
+      "pressurecpufull": 0,
+      "pressurecpusome": 0,
+      "pressureiofull": 0,
+      "pressureiosome": 0,
+      "pressurememoryfull": 0,
+      "pressurememorysome": 0,
+      "serial": 1,
+      "status": "running",
+      "tags": "lab",
+      "uptime": 55,
+      "vmid": 211
+    }
+  ]
+}

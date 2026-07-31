@@ -1,0 +1,63 @@
+{
+  "data": {
+    "result": [
+      {
+        "hardware-address": "AA:BB:CC:DD:EE:FF",
+        "ip-addresses": [
+          {
+            "ip-address": "203.0.113.10",
+            "ip-address-type": "ipv4",
+            "prefix": 8
+          },
+          {
+            "ip-address": "::1",
+            "ip-address-type": "ipv6",
+            "prefix": 128
+          }
+        ],
+        "name": "lo",
+        "statistics": {
+          "rx-bytes": 6480,
+          "rx-dropped": 0,
+          "rx-errs": 0,
+          "rx-packets": 80,
+          "tx-bytes": 6480,
+          "tx-dropped": 0,
+          "tx-errs": 0,
+          "tx-packets": 80
+        }
+      },
+      {
+        "hardware-address": "AA:BB:CC:DD:EE:FF",
+        "ip-addresses": [
+          {
+            "ip-address": "203.0.113.10",
+            "ip-address-type": "ipv4",
+            "prefix": 24
+          },
+          {
+            "ip-address": "2a01:cb0c:732:9200:be24:11ff:fe5a:48e5",
+            "ip-address-type": "ipv6",
+            "prefix": 64
+          },
+          {
+            "ip-address": "fe80::be24:11ff:fe5a:48e5",
+            "ip-address-type": "ipv6",
+            "prefix": 64
+          }
+        ],
+        "name": "eth0",
+        "statistics": {
+          "rx-bytes": 12800,
+          "rx-dropped": 2,
+          "rx-errs": 0,
+          "rx-packets": 95,
+          "tx-bytes": 11884,
+          "tx-dropped": 0,
+          "tx-errs": 0,
+          "tx-packets": 70
+        }
+      }
+    ]
+  }
+}

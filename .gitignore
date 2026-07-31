@@ -1,0 +1,17 @@
+# Binaire compilé par `make build`
+/pvectl
+
+# Artefacts de `make release` — reconstructibles à l'identique depuis un commit
+# (-trimpath, version et commit injectés), donc rien à versionner ici.
+/dist/
+
+# Couverture et profils
+*.out
+*.test
+
+# Config locale éventuelle — ne doit jamais être versionnée (secrets)
+/config.yaml
+
+# Documentation d'accès au lab : endpoint, token, ACL, empreinte TLS.
+# Reste local — le dépôt est public.
+/LAB.md

@@ -1,0 +1,340 @@
+# Publication de pvectl — la moitié CD de la chaîne.
+#
+# DEUX ENTRÉES, une seule sortie.
+#
+#   · « Run workflow » avec low / mid / high  → la version est CALCULÉE depuis
+#     le dernier tag, le tag est créé, la release est publiée ;
+#   · un tag « vX.Y.Z » poussé à la main      → la même publication, sans calcul.
+#
+# Le tag créé ici ne relance pas ce workflow : GITHUB_TOKEN ne déclenche pas
+# d'exécution en cascade. Les deux entrées ne peuvent donc pas se doubler.
+#
+# Trois refus structurent ce fichier :
+#
+#   · on ne publie pas ce qui n'a pas passé la recette — le job `verify`
+#     RÉUTILISE ci.yml au lieu d'en recopier les étapes ;
+#   · on ne publie pas un binaire sans l'avoir LANCÉ, chacun sur sa plateforme.
+#     Des `-ldflags` qui ne prennent pas (mauvais chemin de variable, faute de
+#     frappe sur main.version) donnent un binaire parfaitement valide qui répond
+#     « dev », et rien ne le signale à la compilation ;
+#   · on ne publie pas des sommes de contrôle qu'on n'a pas re-vérifiées.
+#
+# C'est la règle de toute la CLI : une acceptation n'est pas un résultat.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      patch:
+        description: "Ampleur du changement — décide du chiffre qui bouge"
+        required: true
+        type: choice
+        default: low
+        options:
+          - low # correctif        vX.Y.Z+1
+          - mid # ajout compatible vX.Y+1.0
+          - high # rupture          vX+1.0.0
+      dry_run:
+        description: "Tout construire et vérifier, sans taguer ni publier"
+        required: false
+        type: boolean
+        default: false
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  # Jamais d'annulation en vol : une publication interrompue pendant son
+  # téléversement laisse une release à moitié remplie, ce qui est pire que pas
+  # de release du tout. Le groupe est global — deux publications simultanées
+  # calculeraient la même version suivante.
+  cancel-in-progress: false
+
+jobs:
+  # ── 1. La recette, rejouée telle quelle ────────────────────────────────────
+  verify:
+    uses: ./.github/workflows/ci.yml
+
+  # ── 2. Quelle version, et sous quel tag ────────────────────────────────────
+  version:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # créer et pousser le tag
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+      previous: ${{ steps.compute.outputs.previous }}
+      publish: ${{ steps.compute.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Calcul de la version
+        id: compute
+        env:
+          BUMP: ${{ inputs.patch }}
+          DRY: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            # Un tag poussé à la main fait autorité : on ne recalcule rien.
+            version="${GITHUB_REF#refs/tags/}"
+            previous="$(git tag -l 'v*' --sort=-v:refname | grep -Fxv "$version" | head -1 || true)"
+            publish=true
+          else
+            previous="$(git tag -l 'v*' --sort=-v:refname | head -1 || true)"
+            base="${previous:-v0.0.0}"
+            # Un éventuel suffixe de pré-version ne participe pas au calcul.
+            core="${base#v}"; core="${core%%-*}"
+            major="${core%%.*}"
+            rest="${core#*.}"
+            minor="${rest%%.*}"
+            patch="${rest#*.}"
+
+            case "$BUMP" in
+              low)  patch=$((patch + 1)) ;;
+              mid)  minor=$((minor + 1)); patch=0 ;;
+              high) major=$((major + 1)); minor=0; patch=0 ;;
+              *) echo "::error::ampleur inconnue : « $BUMP »"; exit 1 ;;
+            esac
+            version="v${major}.${minor}.${patch}"
+            if [ "$DRY" = "true" ]; then publish=false; else publish=true; fi
+          fi
+
+          # Un tag hors semver passerait sans bruit jusqu'à la page des releases.
+          if ! printf '%s' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::« $version » n'est pas une version semver (attendu vX.Y.Z)"
+            exit 1
+          fi
+
+          {
+            echo "version=$version"
+            echo "previous=$previous"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+
+          # `if`, et pas « [ … ] && echo … » : ce bloc est la DERNIÈRE instruction
+          # du script, donc son statut EST celui du script. Un test qui échoue
+          # parce que la condition est fausse — le cas nominal, publish=true —
+          # faisait sortir l'étape en 1 sans écrire une seule ligne d'erreur.
+          # Un `if` dont la condition est fausse rend 0.
+          {
+            echo "### Version"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| précédente | \`${previous:-aucune}\` |"
+            echo "| ampleur | \`${BUMP:-tag poussé}\` |"
+            echo "| **publiée** | **\`$version\`** |"
+            if [ "$publish" = "false" ]; then
+              echo
+              echo "> à blanc — rien ne sera tagué ni publié"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Poser le tag
+        # Seulement depuis « Run workflow » : sur un push, le tag existe déjà.
+        if: github.event_name == 'workflow_dispatch' && steps.compute.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.compute.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "::error::le tag $VERSION existe déjà — choisis une autre ampleur"
+            exit 1
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "pvectl $VERSION"
+          git push origin "$VERSION"
+
+  # ── 3. Construire, une fois, pour les deux plateformes ─────────────────────
+  build:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # `make release` injecte le commit court via git rev-parse ; une copie
+          # superficielle sans historique le rendrait « unknown ».
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Construction
+        # La cible refuse d'elle-même une VERSION « dev ».
+        run: make release VERSION=${{ needs.version.outputs.version }}
+
+      - name: Chaque binaire vise bien la plateforme annoncée
+        # Une compilation croisée qui se trompe de cible ne proteste pas : elle
+        # produit un binaire valide, pour la mauvaise machine.
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          file "dist/pvectl_${VERSION}_linux_amd64"  | grep -q "ELF 64-bit.*x86-64" \
+            || { echo "::error::le binaire Linux n'est pas un ELF x86-64"; exit 1; }
+          # Statique : c'est ce qui lui permet d'être copié tel quel sur un nœud
+          # Proxmox par « make install-node », sans se soucier de sa libc.
+          file "dist/pvectl_${VERSION}_linux_amd64"  | grep -q "statically linked" \
+            || { echo "::error::le binaire Linux n'est pas statique"; exit 1; }
+          file "dist/pvectl_${VERSION}_darwin_arm64" | grep -q "Mach-O 64-bit.*arm64" \
+            || { echo "::error::le binaire macOS n'est pas un Mach-O arm64"; exit 1; }
+
+      - name: Les sommes de contrôle sont vraies
+        # Écrites par `make release`, re-confrontées ici à leurs fichiers. Une
+        # somme publiée sans avoir été vérifiée est une somme à laquelle
+        # personne ne devrait se fier — à commencer par nous.
+        run: cd dist && sha256sum -c SHA256SUMS && cat SHA256SUMS
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  # ── 4. Lancer réellement chaque binaire, sur sa plateforme ─────────────────
+  smoke:
+    needs: [version, build]
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            suffix: linux_amd64
+          - runner: macos-latest
+            suffix: darwin_arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+
+      - name: pvectl --version dit la vérité
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          binary="dist/pvectl_${VERSION}_${{ matrix.suffix }}"
+          chmod +x "$binary"
+          got="$("$binary" --version)"
+          echo "$got"
+          case "$got" in
+            "pvectl $VERSION (commit "*) ;;
+            *) echo "::error::le binaire répond « $got » — les ldflags n'ont pas pris"; exit 1 ;;
+          esac
+
+      - name: Et il fait quelque chose
+        # Une commande qui n'a besoin d'aucun nœud : elle prouve que l'arbre de
+        # commandes se construit et que l'agent embarqué est bien là.
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          binary="dist/pvectl_${VERSION}_${{ matrix.suffix }}"
+          "$binary" ai print | head -1 | grep -qx -- "---" \
+            || { echo "::error::l'agent embarqué est absent ou tronqué"; exit 1; }
+          "$binary" --help >/dev/null
+
+  # ── 5. Publier ─────────────────────────────────────────────────────────────
+  publish:
+    needs: [version, build, smoke]
+    if: needs.version.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # créer la release et y téléverser
+      id-token: write # attestation de provenance
+      attestations: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+
+      - name: Attestation de provenance
+        # Lie chaque binaire au commit et au workflow qui l'ont produit. Une
+        # somme SHA-256 prouve qu'un fichier n'a pas bougé ; elle ne dit rien de
+        # d'où il vient. Vérifiable par :
+        #   gh attestation verify pvectl --repo ${{ github.repository }}
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/pvectl_*
+
+      - name: Release GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+          PREVIOUS: ${{ needs.version.outputs.previous }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          notes="$(mktemp)"
+          {
+            echo "## Installation"
+            echo
+            echo '```sh'
+            echo "curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | sh"
+            echo '```'
+            echo
+            echo "Le script détecte la plateforme, **vérifie la somme SHA-256**"
+            echo "avant d'installer, pose le binaire dans \`~/.local/bin\` et"
+            echo "installe l'agent Claude Code. Version précise :"
+            echo "\`PVECTL_VERSION=${VERSION} sh\`."
+            echo
+            echo "<details><summary>À la main</summary>"
+            echo
+            echo '```sh'
+            echo "curl -fsSLO https://github.com/${REPO}/releases/download/${VERSION}/pvectl_${VERSION}_linux_amd64"
+            echo "curl -fsSLO https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS"
+            echo "sha256sum -c SHA256SUMS --ignore-missing"
+            echo "gh attestation verify pvectl_${VERSION}_linux_amd64 --repo ${REPO}"
+            echo "chmod +x pvectl_${VERSION}_linux_amd64"
+            echo '```'
+            echo
+            echo "</details>"
+            echo
+            echo "Puis : \`pvectl config init\`, \`pvectl config trust\`, \`pvectl doctor\`."
+            echo
+            echo "## Vérifié avant publication"
+            echo
+            echo "- recette complète (\`fmt\`, \`lint\`, \`test\`, \`cover\`, compilation croisée)"
+            echo "- chaque binaire **exécuté sur sa propre plateforme**, pas seulement compilé"
+            echo "- sommes SHA-256 re-confrontées à leurs fichiers"
+            echo "- provenance attestée par GitHub"
+          } > "$notes"
+
+          # Re-jouer un tag ne doit pas échouer sur « release already exists ».
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" dist/* --clobber
+          else
+            args=(--title "pvectl $VERSION" --notes-file "$notes" --generate-notes --verify-tag)
+            [ -n "$PREVIOUS" ] && args+=(--notes-start-tag "$PREVIOUS")
+            gh release create "$VERSION" dist/* "${args[@]}"
+          fi
+
+      - name: Ce qui a été publié
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        # La preuve est la relecture, jamais l'écho de la commande d'écriture.
+        run: |
+          set -euo pipefail
+          gh release view "$VERSION" --json tagName,isDraft,url,assets \
+            --jq '"tag      \(.tagName)", "brouillon \(.isDraft)", "url      \(.url)", (.assets[] | "asset    \(.name)  \(.size) o")' \
+            | tee -a "$GITHUB_STEP_SUMMARY"

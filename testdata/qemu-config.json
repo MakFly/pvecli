@@ -1,0 +1,24 @@
+{
+  "data": {
+    "agent": "1",
+    "boot": "order=scsi0",
+    "ciuser": "debian",
+    "cores": 2,
+    "digest": "143646922b511c2d10221fdbcadc7117f5402310",
+    "ide2": "local-lvm:vm-211-cloudinit,media=cdrom",
+    "ipconfig0": "ip=203.0.113.10/24,gw=203.0.113.10",
+    "memory": "2048",
+    "meta": "creation-qemu=11.0.0,ctime=1785517532",
+    "name": "lab-app-01",
+    "net0": "virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0",
+    "ostype": "l26",
+    "scsi0": "local-lvm:vm-211-disk-0,size=3G",
+    "scsihw": "virtio-scsi-single",
+    "serial0": "socket",
+    "smbios1": "uuid=00000000-0000-0000-0000-000000000000",
+    "sshkeys": "ssh-ed25519%20AAAA_CLE_PUBLIQUE_ANONYMISEE%20operateur%40poste",
+    "tags": "lab",
+    "vga": "serial0",
+    "vmgenid": "00000000-0000-0000-0000-000000000000"
+  }
+}

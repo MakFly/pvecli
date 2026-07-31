@@ -1,0 +1,19 @@
+{
+  "data": [
+    {
+      "comment": "pvectl automation",
+      "email": "",
+      "enable": 1,
+      "expire": 0,
+      "realm-type": "pve",
+      "userid": "automation@pve"
+    },
+    {
+      "email": "kev.aubree@gmail.com",
+      "enable": 1,
+      "expire": 0,
+      "realm-type": "pam",
+      "userid": "root@pam"
+    }
+  ]
+}

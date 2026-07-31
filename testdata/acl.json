@@ -1,0 +1,102 @@
+{
+  "data": [
+    {
+      "path": "/",
+      "propagate": 1,
+      "roleid": "PVEAuditor",
+      "type": "user",
+      "ugid": "automation@pve"
+    },
+    {
+      "path": "/",
+      "propagate": 1,
+      "roleid": "PVEAuditor",
+      "type": "token",
+      "ugid": "automation@pve!pvectl"
+    },
+    {
+      "path": "/access",
+      "propagate": 1,
+      "roleid": "PVEUserAdmin",
+      "type": "user",
+      "ugid": "automation@pve"
+    },
+    {
+      "path": "/access",
+      "propagate": 1,
+      "roleid": "PVEAuditor",
+      "type": "user",
+      "ugid": "automation@pve"
+    },
+    {
+      "path": "/access",
+      "propagate": 1,
+      "roleid": "PVEUserAdmin",
+      "type": "token",
+      "ugid": "automation@pve!pvectl"
+    },
+    {
+      "path": "/access",
+      "propagate": 1,
+      "roleid": "PVEAuditor",
+      "type": "token",
+      "ugid": "automation@pve!pvectl"
+    },
+    {
+      "path": "/sdn/zones/localnetwork",
+      "propagate": 1,
+      "roleid": "PVESDNUser",
+      "type": "user",
+      "ugid": "automation@pve"
+    },
+    {
+      "path": "/sdn/zones/localnetwork",
+      "propagate": 1,
+      "roleid": "PVESDNUser",
+      "type": "token",
+      "ugid": "automation@pve!pvectl"
+    },
+    {
+      "path": "/storage/local",
+      "propagate": 1,
+      "roleid": "PVEDatastoreUser",
+      "type": "user",
+      "ugid": "automation@pve"
+    },
+    {
+      "path": "/storage/local",
+      "propagate": 1,
+      "roleid": "PVEDatastoreUser",
+      "type": "token",
+      "ugid": "automation@pve!pvectl"
+    },
+    {
+      "path": "/storage/local-lvm",
+      "propagate": 1,
+      "roleid": "PVEDatastoreUser",
+      "type": "user",
+      "ugid": "automation@pve"
+    },
+    {
+      "path": "/storage/local-lvm",
+      "propagate": 1,
+      "roleid": "PVEDatastoreUser",
+      "type": "token",
+      "ugid": "automation@pve!pvectl"
+    },
+    {
+      "path": "/vms",
+      "propagate": 1,
+      "roleid": "PVEVMAdmin",
+      "type": "user",
+      "ugid": "automation@pve"
+    },
+    {
+      "path": "/vms",
+      "propagate": 1,
+      "roleid": "PVEVMAdmin",
+      "type": "token",
+      "ugid": "automation@pve!pvectl"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+version: "2"
+
+linters:
+  # errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  # misspell was enabled in PVX-001, before the CLI had any user-facing text.
+  # It only knows English, and every French message here ("présence",
+  # "contextes", "existant") trips it. Removed rather than papered over with a
+  # per-line ignore list that would grow with every new message.
+
+formatters:
+  enable:
+    - gofmt
