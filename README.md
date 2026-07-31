@@ -10,7 +10,7 @@ It is **not** a clone of `pvesh`. `pvesh` only exists *on* the node, behind SSH.
 does not offer: `--dry-run` everywhere, JSON output, real task polling, generated
 Ansible inventories.
 
-> **Status: 55 of 55 stories done. M0 through M7 are closed.** `pvecli` reads a
+> **Status: M0 through M10 are closed.** `pvecli` reads a
 > node's whole inventory, creates, configures, clones, snapshots, starts and
 > destroys both virtual machines and LXC containers, explains a `403` instead of
 > suggesting you escalate, has been used to destroy a running VM and bring its
@@ -20,6 +20,38 @@ Ansible inventories.
 > nodes — over verified TLS, with a non-root token. It ships as a static binary
 > for macOS and Linux, completes VMIDs at the `Tab` key, and runs from the node
 > itself.
+>
+> Since M9 it also **declares** a VM and the services that go in it — one
+> command, no HCL to write — and ends the run by saying how to get in. Since M10
+> it drives Cloudflare Tunnel, so a service reaches the web without a single
+> port opened on the router.
+
+```sh
+pvecli iac scaffold
+pvecli vm declare app-01 --vmid 220 --cores 2 --memory 8192 \
+    --ip 192.168.1.220/24 --gateway 192.168.1.1 \
+    --with docker,postgresql
+pvecli iac plan && pvecli iac apply
+pvecli iac configure --playbook pvecli.yml --idempotence
+```
+
+```
+accès aux services installés :
+HÔTE    ACCÈS                 VALEUR
+app-01  ip                    192.168.1.220
+app-01  ssh                   ssh ops@192.168.1.220
+app-01  docker                29.7.1
+app-01  postgresql.host       192.168.1.220:5432
+app-01  postgresql.database   app
+app-01  postgresql.user       app
+app-01  postgresql.password   → trousseau : security find-generic-password …
+```
+
+Growing it later is one flag, because a declared VM is **data**, not code:
+
+```sh
+pvecli vm declare app-01 --memory 16384 --disk 25 && pvecli iac apply
+```
 
 ## Why this exists
 
@@ -445,6 +477,10 @@ Exit codes: `0` success · `1` generic · `2` usage · `3` auth/authz ·
 | **M5** Backup & DR | vzdump, restore, timed disaster-recovery drill | A destroyed VM restored, RPO/RTO measured | ✅ 4/4 — VM 212 backed up, destroyed, restored, service answering again. **RPO 19 s, RTO 20 s**, both measured, and what the archive did not hold written down |
 | **M6** IaC | Dynamic inventory, drift detection, Terraform/Ansible wrappers | `iac drift` catches a change made outside Terraform | ✅ 8/8 — Terraform created VM 210 in 23 s, `iac inventory` found its address through the guest agent, Ansible deployed **native Nginx on :80 and containerised Caddy on :8080**, both idempotent on the second pass and both verified on their **body**, not their status code. An out-of-band `memory=3072` was caught by `iac drift` and resorbed by `iac apply` |
 | **M7** Polish | Network, pools, migration, completion, CI, release | Binary installed and usable from the node | ✅ 7/7 — `net ls` shows pending changes read from **outside** `data`; pools created and emptied; a 64 MiB ISO fetched **by the node** with its checksum enforced, and a local file pushed by multipart; `migrate` explains what a single node cannot do; dynamic completion at `Tab`; CI failing under 70 % coverage; **and the binary answering `doctor` from the node itself, over `https://localhost:8006`** |
+
+| **M8** Rename | `pvectl` → `pvecli`, everywhere the code names itself | Suite green at every step; the PVE token `automation@pve!pvectl` deliberately **not** renamed — it is an identity on the node, with ACLs attached, not a name this tool gets to choose | ✅ — `doctor` still returns four ✓ against the live node |
+| **M9** Service catalogue | `vm declare`, embedded catalogue, Ansible roles, connection block | A VM declared in one command, built, resized and verified without writing a line of HCL | ✅ — VM 220 built in **18 s**, docker 29.7.1 + PostgreSQL 17.10 installed, second Ansible pass at `changed=0`, then grown to **16 GiB / 25 GiB** by re-declaring and re-applying, verified from the API *and* from inside the guest. Two collisions found only by running it against the real lab repo: a `site.yml` and a `requirements.yml` it would have overwritten |
+| **M10** Cloudflare | Tunnels, ingress table, DNS, `cloudflared` role | A service reachable from the web with no port opened | 🟡 code and tests done — the live proof waits on a Cloudflare API token |
 
 Full backlog: [`stories/`](stories/) — 55 stories, each with acceptance
 criteria, a proof command, and the thing it is supposed to teach.
