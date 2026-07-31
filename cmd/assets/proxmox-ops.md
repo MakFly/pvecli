@@ -120,27 +120,84 @@ création avec un message qui ne dit pas toujours pourquoi.
 | clone d'un template : machines jumelles | `cloud-init clean` oublié avant `vm template` | effacer `machine-id` et les clés d'hôte SSH avant de figer |
 | `--import-from` → 403 | un token non-root ne peut pas passer un **chemin de fichier** | passer un **volid** : `local:import/image.qcow2` |
 | DHCP : pas d'adresse | le DHCP du réseau ne répond pas de façon fiable | poser une IP statique via `ipconfig0` |
+| service demandé mais jamais installé | le tag `svc_<id>` absent de la déclaration | rejouer `vm declare --with …`, puis `iac apply` **avant** `iac configure` |
+| tunnel actif, tout répond 404 | un catch-all ailleurs qu'en dernier dans la table d'ingress | `pvecli cf route ls --tunnel <nom>` ; pvecli le remet en fin, un `config.yml` édité à la main non |
+| le nom public expire au lieu d'échouer | CNAME vers `cfargotunnel.com` **non proxifié** | il n'est joignable qu'à travers Cloudflare ; `proxied` doit rester vrai |
+| `iac configure --cf-tunnel` : jeton introuvable | le tunnel n'a pas été créé par `pvecli cf tunnel create` | c'est cette commande qui range le jeton au trousseau |
 
 ---
 
 ## Recettes
 
-### A. Créer une VM déclarée (le chemin normal)
+### A. Créer une VM déclarée, avec ses services (le chemin normal)
 
-C'est **toujours** le chemin par défaut quand la VM doit durer.
+C'est **toujours** le chemin par défaut quand la VM doit durer. **Tu n'édites
+jamais de HCL** : `vm declare` écrit une donnée, le module la lit.
 
-1. `pvecli guest ls` — vérifier le template et le VMID libre.
-2. Éditer `main.tf` dans `iac.terraform_dir` (`pvecli config show` le donne).
-   Pour *N* vCPU et *M* Go : `cpu { cores = N }` et `memory { dedicated = M*1024 }`.
-   Ne pas oublier les tags — dont celui que le playbook cible.
-3. `pvecli iac plan` — **toujours avant l'apply**, et lire ce qu'il propose.
-4. `pvecli iac apply` — le post-vol relit par l'API et affiche cœurs / RAM réels.
-5. `pvecli iac configure --playbook site.yml --limit <groupe> --idempotence
-   --verify-url 'http://{{host}}/' --verify-contains '<texte attendu>'`
+```bash
+pvecli iac scaffold                       # une fois par dossier : module + rôles
+pvecli vm declare app-01 --vmid 220 \
+    --cores 2 --memory 8192 \             # MIBIOCTETS : 8 Go = 8192
+    --ip 192.168.1.220/24 --gateway 192.168.1.1 \
+    --with docker,postgresql,cloudflared \
+    --dry-run                             # lis le diff, puis relance sans --dry-run
+pvecli iac plan && pvecli iac apply       # post-vol : relecture par l'API
+pvecli iac configure --idempotence        # rôles joués, puis bloc de connexion
+```
+
+`--with` prend les ids du catalogue (`pvecli vm declare --help` les liste, la
+complétion aussi). Chaque service pose un tag `svc_<id>` ; l'inventaire en fait
+un groupe Ansible, et `site.yml` joue le rôle sur ce groupe. **Un tag retiré =
+un rôle qui ne tourne plus, sans erreur.**
+
+Sur un terminal, sans `--with`, une liste à cocher s'affiche. En script, `--with`
+est obligatoire — et `--with ''` demande explicitement une VM nue.
+
+**Redimensionner** ne se fait pas autrement :
+
+```bash
+pvecli vm declare app-01 --memory 16384 && pvecli iac apply
+```
+
+Ce qui n'est pas passé en option n'est pas touché. N'utilise **jamais**
+`pvecli vm set` sur une VM déclarée : elle porte `managed`, la garde refusera, et
+c'est voulu — le prochain `apply` effacerait ton geste.
+
+**Retirer** une VM : `pvecli vm declare app-01 --remove`, puis `iac apply`. C'est
+Terraform qui détruit, pas `vm rm`.
 
 Le token part vers Terraform par `TF_VAR_proxmox_api_token`, que `pvecli iac`
 compose seul. Si tu lances `terraform` à la main :
 `export TF_VAR_proxmox_api_token="${PVE_API_TOKEN_ID}=${PVE_API_TOKEN_SECRET}"`.
+
+### A bis. Exposer un service sur le web (Cloudflare Tunnel)
+
+Le modèle est **sortant** : rien n'est ouvert sur la box, aucune redirection de
+port n'est jamais à configurer. Si on te demande d'ouvrir un port, la réponse est
+qu'il n'y en a pas besoin.
+
+```bash
+pvecli cf status                          # vérifie le jeton AVANT tout le reste
+pvecli cf tunnel create homelab           # le jeton de connecteur part au trousseau
+pvecli cf route add n8n.exemple.tld \
+    --tunnel homelab --service http://192.168.1.220:5678
+pvecli iac configure --cf-tunnel homelab --cf-hostname n8n.exemple.tld
+```
+
+Prérequis : `CF_API_TOKEN` dans l'environnement (jamais en argument) et
+`pvecli config set cf.account_id <id>`. Le domaine doit déjà être délégué à
+Cloudflare.
+
+Ajouter une application ensuite = **une** `cf route add` de plus. Rien à
+redéployer : la table d'ingress vit chez Cloudflare, pas dans l'invité.
+
+Ce que tu ne dois pas oublier de dire :
+- une route ajoutée ne répond que lorsque `cloudflared` tourne **dans** l'invité ;
+- exposer n'est pas sécuriser — propose Cloudflare Access devant tout ce qui n'est
+  pas destiné au public ;
+- le proxy Cloudflare limite un corps de requête à 100 Mo et coupe à 100 s. Pour
+  du gros fichier ou du streaming, dis-le, et oriente vers un autre chemin plutôt
+  que de laisser découvrir la limite en production.
 
 ### B. Fabriquer un template cloud-init
 
@@ -210,6 +267,10 @@ Une restauration ne se fait que depuis une sauvegarde **testée**. Un
 - Créer ou détruire quoi que ce soit dans la plage 900-999.
 - Élargir des droits toi-même, ou suggérer `Administrator` comme solution.
 - Rapporter un succès que tu n'as pas relu à la source.
+- Éditer un `.tf` à la main quand `pvecli vm declare` fait le travail — le HCL est
+  du code relu une fois, les VM sont de la donnée.
+- Afficher un mot de passe généré ou un jeton de tunnel. Ils vont au trousseau ;
+  tu donnes la référence, jamais la valeur.
 
 ## Ce que tu rends
 
