@@ -44,6 +44,13 @@ var notDeclaredByTerraform = map[string]string{
 	"vm snapshot rm":      "idem",
 	"lxc snapshot create": "idem",
 	"lxc snapshot rm":     "idem",
+
+	// `vm declare` écrit la DÉCLARATION elle-même, pas le nœud. La garde existe
+	// pour empêcher une écriture ponctuelle que le prochain « apply »
+	// effacerait ; ici, il n'y a rien à effacer — c'est l'entrée de Terraform
+	// qu'on édite, et le tag « managed » est justement ce que la commande POSE.
+	// Lui opposer la garde reviendrait à interdire de déclarer ce qu'on déclare.
+	"vm declare": "écrit l'entrée Terraform, pas le nœud — c'est elle qui pose le tag « managed »",
 }
 
 // The criterion of PVX-041: no W command escapes the guard.

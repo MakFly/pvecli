@@ -172,7 +172,12 @@ func (c *Catalog) Resolve(ids []string) ([]Service, error) {
 	}
 
 	for _, id := range ids {
-		if err := visit(strings.TrimSpace(id)); err != nil {
+		// `--with ''` is how a pipeline asks for a bare VM. An empty entry is
+		// that request, not a typo, so it is skipped rather than refused.
+		if id = strings.TrimSpace(id); id == "" {
+			continue
+		}
+		if err := visit(id); err != nil {
 			return nil, err
 		}
 	}
