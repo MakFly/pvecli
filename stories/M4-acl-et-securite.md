@@ -1,7 +1,7 @@
 # M4 — ACL, tokens & sécurité
 
 > Chapitres 02 & 09 du manuel · PVX-032 → PVX-036
-> **Preuve de fin de lot** : un `403` est provoqué volontairement, diagnostiqué via `pvectl access whoami`, corrigé par une ACL (et non par une élévation de privilège), puis documenté dans `docs/LEARNING-LOG.md`.
+> **Preuve de fin de lot** : un `403` est provoqué volontairement, diagnostiqué via `pvecli access whoami`, corrigé par une ACL (et non par une élévation de privilège), puis documenté dans `docs/LEARNING-LOG.md`.
 
 Lot indépendant de M5 : les deux peuvent être menés dans l'ordre qu'on veut après M3.
 
@@ -10,7 +10,7 @@ Lot indépendant de M5 : les deux peuvent être menés dans l'ordre qu'on veut a
 ### PVX-032 — Savoir ce que je peux faire (`access whoami`)
 **Taille** M · **Type** R · **Dépend de** PVX-010 · **PRD** §6.2, §7.5
 
-En tant qu'opérateur, je veux `pvectl access whoami`, afin de comprendre un `403` sans deviner.
+En tant qu'opérateur, je veux `pvecli access whoami`, afin de comprendre un `403` sans deviner.
 
 **Critères d'acceptation**
 - Appelle `GET /access/permissions` pour le token courant.
@@ -22,8 +22,8 @@ En tant qu'opérateur, je veux `pvectl access whoami`, afin de comprendre un `40
 
 **Preuve**
 ```bash
-pvectl access whoami
-pvectl access whoami --can VM.Allocate --path /vms; echo $?
+pvecli access whoami
+pvecli access whoami --can VM.Allocate --path /vms; echo $?
 ```
 
 **Ce que ça doit t'apprendre** — La *privilege separation* : un token peut avoir moins de droits que son utilisateur, jamais plus. C'est la cause n°1 des `403` inexplicables en homelab.
@@ -44,8 +44,8 @@ En tant qu'opérateur, je veux lire le modèle d'autorisation complet, afin de s
 
 **Preuve**
 ```bash
-pvectl access role show PVEVMAdmin     # liste des privilèges accordés
-pvectl access acl ls
+pvecli access role show PVEVMAdmin     # liste des privilèges accordés
+pvecli access acl ls
 ```
 
 **Ce que ça doit t'apprendre** — Qu'un rôle est un *paquet de privilèges* et une ACL un *triplet (chemin, identité, rôle)*. Tant que ce modèle n'est pas clair, chaque `403` reste un mystère.
@@ -55,7 +55,7 @@ pvectl access acl ls
 ### PVX-034 — Créer un token d'API
 **Taille** M · **Type** W‼ · **Dépend de** PVX-033, PVX-021 · **PRD** §6.2, §7.6
 
-En tant qu'opérateur, je veux `pvectl access token create`, afin de délivrer des identifiants dédiés et à durée limitée (par exemple pour Terraform).
+En tant qu'opérateur, je veux `pvecli access token create`, afin de délivrer des identifiants dédiés et à durée limitée (par exemple pour Terraform).
 
 **Critères d'acceptation**
 - `POST /access/users/{userid}/token/{tokenid}` avec `--privsep` (défaut `1`), `--expire`, `--comment`.
@@ -66,8 +66,8 @@ En tant qu'opérateur, je veux `pvectl access token create`, afin de délivrer d
 
 **Preuve**
 ```bash
-pvectl access token create automation@pve terraform --expire 2026-12-31 --dry-run
-pvectl access token create automation@pve terraform --expire 2026-12-31 > /tmp/secret
+pvecli access token create automation@pve terraform --expire 2026-12-31 --dry-run
+pvecli access token create automation@pve terraform --expire 2026-12-31 > /tmp/secret
 ```
 
 **Ce que ça doit t'apprendre** — Pourquoi le repo insiste : token dédié, à privilèges séparés, expirant, jamais `root@pam`. Et pourquoi une CLI doit rendre la bonne pratique plus facile que la mauvaise.
@@ -77,7 +77,7 @@ pvectl access token create automation@pve terraform --expire 2026-12-31 > /tmp/s
 ### PVX-035 — Attribuer et retirer des droits
 **Taille** M · **Type** W‼ · **Dépend de** PVX-034 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl access acl set`, afin d'élargir les droits du token `pvectl` lot par lot, au lieu de tout accorder d'emblée.
+En tant qu'opérateur, je veux `pvecli access acl set`, afin d'élargir les droits du token `pvecli` lot par lot, au lieu de tout accorder d'emblée.
 
 **Critères d'acceptation**
 - `PUT /access/acl` avec `--path`, `--role`, `--user`/`--token`/`--group`, `--propagate`, `--delete` (pour retirer).
@@ -88,9 +88,9 @@ En tant qu'opérateur, je veux `pvectl access acl set`, afin d'élargir les droi
 
 **Preuve**
 ```bash
-pvectl access acl set --path /vms --role PVEVMAdmin \
+pvecli access acl set --path /vms --role PVEVMAdmin \
   --token 'automation@pve!pvectl' --propagate --dry-run
-pvectl access whoami --can VM.PowerMgmt --path /vms/210
+pvecli access whoami --can VM.PowerMgmt --path /vms/210
 ```
 
 **Ce que ça doit t'apprendre** — Le principe de moindre privilège appliqué dans le temps : élargir quand on en a besoin, pas « au cas où ». Et la propagation d'ACL le long de l'arbre des chemins.
@@ -105,17 +105,17 @@ En tant qu'apprenant, je veux fabriquer volontairement une erreur d'autorisation
 **Critères d'acceptation**
 - Un token de test est créé avec le seul rôle `PVEAuditor` sur `/`.
 - Une commande d'écriture avec ce token produit un `403`, code de sortie `3`.
-- Le message de PVX-007 mène à `pvectl access whoami`, qui montre l'absence du privilège requis.
+- Le message de PVX-007 mène à `pvecli access whoami`, qui montre l'absence du privilège requis.
 - La correction se fait **par ACL ciblée**, jamais en basculant sur `root@pam` ni en élargissant à `Administrator`.
 - L'ensemble (privilège manquant exact, chemin, rôle choisi, raison de ce rôle) est consigné dans `docs/LEARNING-LOG.md`.
 - Le token de test est révoqué à la fin (`DELETE /access/users/{u}/token/{t}`).
 
 **Preuve** *(preuve de fin de lot M4)*
 ```bash
-PVE_API_TOKEN_ID='automation@pve!readonly' pvectl vm stop 210 --yes; echo $?  # → 3
-pvectl access whoami --can VM.PowerMgmt --path /vms/210                       # → non
-pvectl access acl set --path /vms/210 --role PVEVMAdmin --token 'automation@pve!readonly'
-PVE_API_TOKEN_ID='automation@pve!readonly' pvectl vm stop 210 --yes; echo $?  # → 0
+PVE_API_TOKEN_ID='automation@pve!readonly' pvecli vm stop 210 --yes; echo $?  # → 3
+pvecli access whoami --can VM.PowerMgmt --path /vms/210                       # → non
+pvecli access acl set --path /vms/210 --role PVEVMAdmin --token 'automation@pve!readonly'
+PVE_API_TOKEN_ID='automation@pve!readonly' pvecli vm stop 210 --yes; echo $?  # → 0
 ```
 
 **Ce que ça doit t'apprendre** — La règle du playbook : *ne jamais désactiver TLS, élargir une ACL au maximum, utiliser `root@pam` ou supprimer un verrou comme première réaction*. Un `403` est une information, pas un obstacle.

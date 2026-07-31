@@ -1,7 +1,7 @@
 # M1 — Lecture
 
 > Chapitre 02 du manuel · PVX-010 → PVX-017
-> **Preuve de fin de lot** : `pvectl vm ls -o json | jq '.[].name'` fonctionne, et `docs/API-MAP.md` référence chaque endpoint implémenté avec sa source documentaire.
+> **Preuve de fin de lot** : `pvecli vm ls -o json | jq '.[].name'` fonctionne, et `docs/API-MAP.md` référence chaque endpoint implémenté avec sa source documentaire.
 
 Lot 100 % read-only : aucun risque pour le lab, mais c'est là qu'on découvre la forme réelle des données PVE. Toutes les structures typées créées ici seront réutilisées par les lots d'écriture.
 
@@ -22,8 +22,8 @@ En tant qu'opérateur, je veux choisir le format de sortie, afin de lire confort
 
 **Preuve**
 ```bash
-pvectl node ls -o json | jq -e '.[0].node' >/dev/null && echo ok
-pvectl node ls > /dev/null   # aucune sortie parasite sur stdout
+pvecli node ls -o json | jq -e '.[0].node' >/dev/null && echo ok
+pvecli node ls > /dev/null   # aucune sortie parasite sur stdout
 ```
 
 **Ce que ça doit t'apprendre** — La discipline stdout/stderr est ce qui sépare une CLI scriptable d'une CLI décorative.
@@ -33,7 +33,7 @@ pvectl node ls > /dev/null   # aucune sortie parasite sur stdout
 ### PVX-011 — Lister les VM QEMU
 **Taille** M · **Type** R · **Dépend de** PVX-010 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl vm ls`, afin de voir l'inventaire des machines virtuelles sans ouvrir l'interface web.
+En tant qu'opérateur, je veux `pvecli vm ls`, afin de voir l'inventaire des machines virtuelles sans ouvrir l'interface web.
 
 **Critères d'acceptation**
 - Appelle `GET /nodes/{node}/qemu` ; `--node` surcharge le nœud par défaut.
@@ -44,8 +44,8 @@ En tant qu'opérateur, je veux `pvectl vm ls`, afin de voir l'inventaire des mac
 
 **Preuve**
 ```bash
-pvectl vm ls
-pvectl vm ls -o json | jq '.[] | select(.template == 1) | .name'
+pvecli vm ls
+pvecli vm ls -o json | jq '.[] | select(.template == 1) | .name'
 ```
 
 **Ce que ça doit t'apprendre** — Qu'un template PVE est une VM avec un drapeau, pas un objet d'un autre type. Cette découverte conditionne toute la story de clonage (PVX-024).
@@ -55,17 +55,17 @@ pvectl vm ls -o json | jq '.[] | select(.template == 1) | .name'
 ### PVX-012 — Lister les conteneurs LXC
 **Taille** S · **Type** R · **Dépend de** PVX-011 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl lxc ls`, afin de voir les conteneurs au même endroit que les VM.
+En tant qu'opérateur, je veux `pvecli lxc ls`, afin de voir les conteneurs au même endroit que les VM.
 
 **Critères d'acceptation**
 - Appelle `GET /nodes/{node}/lxc`, mêmes colonnes et mêmes filtres que `vm ls`.
 - La sortie indique si le conteneur est **non privilégié** (`unprivileged`) — c'est la compétence validée par le chapitre 03.
-- `pvectl guest ls` (alias transverse) fusionne VM et LXC avec une colonne `type`.
+- `pvecli guest ls` (alias transverse) fusionne VM et LXC avec une colonne `type`.
 
 **Preuve**
 ```bash
-pvectl lxc ls    # colonne unprivileged visible
-pvectl guest ls  # qemu + lxc dans un seul tableau
+pvecli lxc ls    # colonne unprivileged visible
+pvecli guest ls  # qemu + lxc dans un seul tableau
 ```
 
 **Ce que ça doit t'apprendre** — Les endpoints QEMU et LXC sont quasi symétriques mais **pas identiques** : repérer dès maintenant où ils divergent tranchera la décision ouverte D4 du PRD (interface `Guest` commune ou non).
@@ -75,7 +75,7 @@ pvectl guest ls  # qemu + lxc dans un seul tableau
 ### PVX-013 — Décrire un guest en détail
 **Taille** M · **Type** R · **Dépend de** PVX-012 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl vm show <vmid>` et `lxc show <ctid>`, afin de voir la configuration *et* l'état courant dans une seule vue.
+En tant qu'opérateur, je veux `pvecli vm show <vmid>` et `lxc show <ctid>`, afin de voir la configuration *et* l'état courant dans une seule vue.
 
 **Critères d'acceptation**
 - Combine `GET /nodes/{n}/qemu/{id}/config` et `GET /nodes/{n}/qemu/{id}/status/current`.
@@ -86,8 +86,8 @@ En tant qu'opérateur, je veux `pvectl vm show <vmid>` et `lxc show <ctid>`, afi
 
 **Preuve**
 ```bash
-pvectl vm show 100
-pvectl vm show 100 --raw -o json | jq .config
+pvecli vm show 100
+pvecli vm show 100 --raw -o json | jq .config
 ```
 
 **Ce que ça doit t'apprendre** — Le format « chaîne à options » de PVE (`virtio0: local-lvm:vm-100-disk-0,size=20G`) : le comprendre est indispensable pour écrire une config (PVX-026).
@@ -97,7 +97,7 @@ pvectl vm show 100 --raw -o json | jq .config
 ### PVX-014 — Explorer les stockages et leur contenu
 **Taille** M · **Type** R · **Dépend de** PVX-010 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl storage ls` et `storage content <store>`, afin de comprendre où atterrissent images, ISO, templates et sauvegardes.
+En tant qu'opérateur, je veux `pvecli storage ls` et `storage content <store>`, afin de comprendre où atterrissent images, ISO, templates et sauvegardes.
 
 **Critères d'acceptation**
 - `storage ls` combine `GET /storage` (définition cluster) et `GET /nodes/{n}/storage` (état sur le nœud) : type, `content` autorisés, actif, espace utilisé/total.
@@ -106,8 +106,8 @@ En tant qu'opérateur, je veux `pvectl storage ls` et `storage content <store>`,
 
 **Preuve**
 ```bash
-pvectl storage ls
-pvectl storage content local --content iso
+pvecli storage ls
+pvecli storage content local --content iso
 ```
 
 **Ce que ça doit t'apprendre** — Pourquoi un `.qcow2` ne peut pas être déposé sur un storage déclaré `content=iso` : le type de contenu est une contrainte de l'API, pas une convention de nommage.
@@ -117,7 +117,7 @@ pvectl storage content local --content iso
 ### PVX-015 — Consulter les tâches et leurs journaux
 **Taille** M · **Type** R · **Dépend de** PVX-010 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl task ls|show|log`, afin d'observer ce que le nœud fait — y compris ce que fait l'interface web pendant que je clique.
+En tant qu'opérateur, je veux `pvecli task ls|show|log`, afin d'observer ce que le nœud fait — y compris ce que fait l'interface web pendant que je clique.
 
 **Critères d'acceptation**
 - `task ls` appelle `GET /nodes/{n}/tasks` : UPID tronqué, type, cible, utilisateur, début, durée, `status`, `exitstatus`. `--running` filtre les tâches actives, `--limit` borne le nombre.
@@ -129,8 +129,8 @@ En tant qu'opérateur, je veux `pvectl task ls|show|log`, afin d'observer ce que
 **Preuve**
 ```bash
 # lancer un démarrage depuis l'UI, puis :
-pvectl task ls --running
-pvectl task log <UPID> --tail 20
+pvecli task ls --running
+pvecli task log <UPID> --tail 20
 ```
 
 **Ce que ça doit t'apprendre** — Que l'interface web n'est qu'un client de la même API : chacun de tes clics laisse une tâche que tu peux relire. C'est le meilleur moyen d'apprendre quels endpoints appeler.
@@ -140,7 +140,7 @@ pvectl task log <UPID> --tail 20
 ### PVX-016 — Lire l'état du cluster et l'inventaire global
 **Taille** S · **Type** R · **Dépend de** PVX-010 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl cluster status` et `cluster resources`, afin d'obtenir une vue transversale sans boucler nœud par nœud.
+En tant qu'opérateur, je veux `pvecli cluster status` et `cluster resources`, afin d'obtenir une vue transversale sans boucler nœud par nœud.
 
 **Critères d'acceptation**
 - `cluster status` appelle `GET /cluster/status` (quorum, nœuds, version corosync) et reste lisible en mono-nœud.
@@ -149,7 +149,7 @@ En tant qu'opérateur, je veux `pvectl cluster status` et `cluster resources`, a
 
 **Preuve**
 ```bash
-pvectl cluster resources --type vm -o json | jq '.[].vmid'
+pvecli cluster resources --type vm -o json | jq '.[].vmid'
 ```
 
 **Ce que ça doit t'apprendre** — Qu'un seul appel `/cluster/resources` remplace souvent N appels `/nodes/{n}/…` : savoir choisir l'endpoint agrégé est une compétence à part entière.
@@ -164,7 +164,7 @@ En tant que développeur, je veux rejouer des réponses API réelles dans les te
 **Critères d'acceptation**
 - `internal/testutil` expose un `httptest.Server` qui sert les fixtures de `testdata/` selon méthode + chemin.
 - Une commande de capture (`make capture ENDPOINT=/nodes/pve/qemu`) enregistre une réponse réelle **anonymisée** (IP, noms d'hôte, identifiants remplacés) dans `testdata/`.
-- `docs/API-MAP.md` liste, pour chaque endpoint implémenté : méthode, chemin, commande `pvectl` correspondante, source consultée (URL de l'API viewer ou commande `search-pve-api.ts`), date de vérification.
+- `docs/API-MAP.md` liste, pour chaque endpoint implémenté : méthode, chemin, commande `pvecli` correspondante, source consultée (URL de l'API viewer ou commande `search-pve-api.ts`), date de vérification.
 - Un test de non-régression échoue si un endpoint utilisé dans le code est absent de `API-MAP.md`.
 - Couverture ≥ 70 % sur `internal/pve`.
 

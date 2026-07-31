@@ -1,4 +1,4 @@
-# Backlog `pvectl` — index des user stories
+# Backlog `pvecli` — index des user stories
 
 Découpage opérationnel du [`prd.md`](../prd.md). Une story = une unité livrable, testable, qui laisse la CLI dans un état utilisable.
 
@@ -83,14 +83,14 @@ Une story n'est close que si **tous** ces points sont vrais :
 
 | Lot | Preuve de fin de lot | État |
 | --- | --- | --- |
-| M0 | `pvectl version` renvoie la version réelle du nœud, TLS vérifié, token non-root | ☑ **obtenue** — PVE 9.2.2, empreinte épinglée, `automation@pve!pvectl` |
-| M1 | `pvectl vm ls -o json \| jq '.[].name'` fonctionne ; `API-MAP.md` complet | ☑ **obtenue** — et `API-MAP.md` est vérifié par un test, pas par relecture |
-| M2 | Un `stop` affiche l'UPID, attend l'`exitstatus`, relit l'état — sur un LXC Nginx | ☑ **obtenue** — `pvectl lxc stop 120` : UPID `vzstop`, `exitstatus`, relecture à `stopped` |
-| M3 | Template cloud-init créé puis cloné intégralement par `pvectl`, sans l'UI | ☑ **obtenue** — template `9000` construit, cloné en `212`, clone joignable en SSH ; garde `managed` opposée à `vm rm 212` |
+| M0 | `pvecli version` renvoie la version réelle du nœud, TLS vérifié, token non-root | ☑ **obtenue** — PVE 9.2.2, empreinte épinglée, `automation@pve!pvectl` |
+| M1 | `pvecli vm ls -o json \| jq '.[].name'` fonctionne ; `API-MAP.md` complet | ☑ **obtenue** — et `API-MAP.md` est vérifié par un test, pas par relecture |
+| M2 | Un `stop` affiche l'UPID, attend l'`exitstatus`, relit l'état — sur un LXC Nginx | ☑ **obtenue** — `pvecli lxc stop 120` : UPID `vzstop`, `exitstatus`, relecture à `stopped` |
+| M3 | Template cloud-init créé puis cloné intégralement par `pvecli`, sans l'UI | ☑ **obtenue** — template `9000` construit, cloné en `212`, clone joignable en SSH ; garde `managed` opposée à `vm rm 212` |
 | M4 | Un `403` provoqué, diagnostiqué via `access whoami`, corrigé par ACL et documenté | ☑ **obtenue** — token jetable sans ACL → 403 ; `whoami --can` dit lequel ; une ACL ciblée sur `/vms/120` corrige ; token révoqué |
-| M5 | VM détruite puis restaurée par `pvectl`, RPO/RTO mesurés | ☑ **obtenue** — VM 212 sauvegardée, détruite, restaurée, service rendu. **RPO 19 s** (prouvé par un fichier écrit après l'archive et absent au retour), **RTO 20 s** |
+| M5 | VM détruite puis restaurée par `pvecli`, RPO/RTO mesurés | ☑ **obtenue** — VM 212 sauvegardée, détruite, restaurée, service rendu. **RPO 19 s** (prouvé par un fichier écrit après l'archive et absent au retour), **RTO 20 s** |
 | M6 | Chaîne TF → `iac inventory` → Ansible → page Nginx servie ; `iac drift` détecte une modif UI | ☑ **obtenue** — Terraform crée `210` en 23 s, l'inventaire trouve son IP par l'agent, Ansible sert **Nginx natif sur :80 et Caddy conteneurisé sur :8080**, idempotence mesurée (`changed=0` au 2ᵉ passage) et contenu vérifié — pas seulement le code HTTP. Un `memory=3072` posé hors Terraform est attrapé par `iac drift` puis résorbé par `iac apply` |
-| M7 | Binaire installé et utilisable depuis le nœud ; complétion zsh opérationnelle | ☑ **obtenue** — `make release VERSION=v0.1.0` puis `make install-node` ; depuis le nœud, `PVE_API_URL=https://localhost:8006 pvectl doctor` répond **quatre ✓** après un `pvectl config trust` local. Le certificat porte `CN=pve.example` : ni l'IP du poste ni `localhost` n'y correspondent, et c'est l'épinglage d'empreinte — indépendant du nom — qui rend le cas trivial. Complétion zsh générée, chargée, et proposant les VMID avec leur nom |
+| M7 | Binaire installé et utilisable depuis le nœud ; complétion zsh opérationnelle | ☑ **obtenue** — `make release VERSION=v0.1.0` puis `make install-node` ; depuis le nœud, `PVE_API_URL=https://localhost:8006 pvecli doctor` répond **quatre ✓** après un `pvecli config trust` local. Le certificat porte `CN=pve.example` : ni l'IP du poste ni `localhost` n'y correspondent, et c'est l'épinglage d'empreinte — indépendant du nom — qui rend le cas trivial. Complétion zsh générée, chargée, et proposant les VMID avec leur nom |
 
 
 ## Avancement au 2026-07-31
@@ -109,11 +109,11 @@ Une story n'est close que si **tous** ces points sont vrais :
 | M7 | 049 → 055 | — |
 
 M4 a soldé une dette de M0 : le message d'erreur d'un `403` renvoyait déjà, en
-dur, vers un `pvectl access whoami` qui n'existait pas. Il existe.
+dur, vers un `pvecli access whoami` qui n'existait pas. Il existe.
 
 Il a aussi soldé une dette de méthode. Le token avait été élargi trois fois à la
 main sur le nœud (`import-from`, `SDN.Use`, puis `/access` pour ce lot) ; c'est
-désormais `pvectl access acl set` qui fait le geste — sauf le dernier, qui ne
+désormais `pvecli access acl set` qui fait le geste — sauf le dernier, qui ne
 pouvait pas venir de l'outil : accorder le droit d'accorder des droits doit être
 fait par ailleurs.
 
@@ -121,14 +121,14 @@ M7 a rencontré la même limite deux fois de plus, et l'a documentée plutôt qu
 la contourner. `Pool.Allocate` et `Datastore.AllocateTemplate` ont dû être posés
 depuis le nœud, parce que le token n'a pas `Permissions.Modify` et qu'on ne peut
 pas accorder un privilège qu'on ne détient pas. Le refus a été capturé avant le
-geste : `pvectl access acl set --path /pool …` répond
+geste : `pvecli access acl set --path /pool …` répond
 `403 — Permission check failed (/pool, Permissions.Modify)`.
 
 Et `Sys.Modify` sur `/nodes/pve` est resté volontairement refusé : c'est le
 privilège de `net apply`, la seule commande qui peut rendre le nœud injoignable,
 sans accès console pour se rattraper.
 
-État du lab, entièrement construit par `pvectl` :
+État du lab, entièrement construit par `pvecli` :
 
 | VMID | Nom | Rôle |
 | --- | --- | --- |
@@ -136,7 +136,7 @@ sans accès console pour se rattraper.
 | 9001 | `debian13-cloudinit-agent` | template cloné par Terraform |
 | 210 | `lab-app-01` | VM possédée par Terraform, taguée `managed` |
 | 211 | `lab-app-01` | VM créée de zéro — `192.0.2.211`, membre du pool `lab` |
-| 212 | `lab-app-02` | clone complet, détruit puis restauré par `pvectl backup restore` |
+| 212 | `lab-app-02` | clone complet, détruit puis restauré par `pvecli backup restore` |
 | 120 | `web` | conteneur LXC non privilégié — `192.0.2.120`, membre du pool `lab` |
 
 Les deux VM et le conteneur sont joignables en SSH avec la clé injectée à la

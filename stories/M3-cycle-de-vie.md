@@ -1,7 +1,7 @@
 # M3 — Cycle de vie des guests
 
 > Chapitres 04 & 05 du manuel · PVX-024 → PVX-031
-> **Preuve de fin de lot** : un template cloud-init est créé puis cloné intégralement par `pvectl`, sans jamais passer par l'interface web ; la VM clonée est joignable en SSH.
+> **Preuve de fin de lot** : un template cloud-init est créé puis cloné intégralement par `pvecli`, sans jamais passer par l'interface web ; la VM clonée est joignable en SSH.
 
 Lot le plus dense. Toutes les stories passent par le pipeline de mutation de PVX-021 — aucune exception.
 
@@ -10,7 +10,7 @@ Lot le plus dense. Toutes les stories passent par le pipeline de mutation de PVX
 ### PVX-024 — Cloner une VM depuis un template
 **Taille** M · **Type** W · **Dépend de** PVX-021 · **PRD** §5.3, §6.2
 
-En tant qu'opérateur, je veux `pvectl vm clone <src> --newid <id>`, afin de produire une VM à partir du template cloud-init du chapitre 04.
+En tant qu'opérateur, je veux `pvecli vm clone <src> --newid <id>`, afin de produire une VM à partir du template cloud-init du chapitre 04.
 
 **Critères d'acceptation**
 - `POST /nodes/{n}/qemu/{src}/clone` avec `newid`, `name`, `full`, `target`, `storage`, `description`, `pool`.
@@ -21,9 +21,9 @@ En tant qu'opérateur, je veux `pvectl vm clone <src> --newid <id>`, afin de pro
 
 **Preuve**
 ```bash
-pvectl vm clone 9000 --newid 210 --name lab-app-01 --full --dry-run
-pvectl vm clone 9000 --newid 210 --name lab-app-01 --full
-pvectl vm show 210
+pvecli vm clone 9000 --newid 210 --name lab-app-01 --full --dry-run
+pvecli vm clone 9000 --newid 210 --name lab-app-01 --full
+pvecli vm show 210
 ```
 
 **Ce que ça doit t'apprendre** — Le clone lié partage les blocs du template : supprimer le template casse les clones. C'est exactement le genre de contrainte que l'interface web masque.
@@ -33,7 +33,7 @@ pvectl vm show 210
 ### PVX-025 — Créer une VM de zéro
 **Taille** L · **Type** W · **Dépend de** PVX-024 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl vm create`, afin de comprendre chaque paramètre que le wizard de l'interface web remplit à ma place.
+En tant qu'opérateur, je veux `pvecli vm create`, afin de comprendre chaque paramètre que le wizard de l'interface web remplit à ma place.
 
 **Critères d'acceptation**
 - `POST /nodes/{n}/qemu` avec au minimum `vmid`, `name`, `cores`, `memory`, `net0`, `scsi0`/`virtio0`, `ostype`, `scsihw`, `boot`.
@@ -44,7 +44,7 @@ En tant qu'opérateur, je veux `pvectl vm create`, afin de comprendre chaque par
 
 **Preuve**
 ```bash
-pvectl vm create --vmid 211 --name scratch --cores 2 --memory 2048 \
+pvecli vm create --vmid 211 --name scratch --cores 2 --memory 2048 \
   --disk local-lvm:10 --net vmbr0 --ostype l26 --dry-run
 ```
 
@@ -55,7 +55,7 @@ pvectl vm create --vmid 211 --name scratch --cores 2 --memory 2048 \
 ### PVX-026 — Modifier la configuration d'une VM
 **Taille** M · **Type** W · **Dépend de** PVX-025 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl vm set <vmid>`, afin d'ajuster CPU, RAM, tags et cloud-init sans recréer la machine.
+En tant qu'opérateur, je veux `pvecli vm set <vmid>`, afin d'ajuster CPU, RAM, tags et cloud-init sans recréer la machine.
 
 **Critères d'acceptation**
 - `PUT /nodes/{n}/qemu/{id}/config` avec seulement les clés modifiées.
@@ -63,12 +63,12 @@ En tant qu'opérateur, je veux `pvectl vm set <vmid>`, afin d'ajuster CPU, RAM, 
 - `--delete <clé>` supprime une clé de config (paramètre `delete` de l'API).
 - Pre-read + diff : la CLI affiche **ce qui change** (avant → après), pas seulement ce qu'on envoie.
 - La commande ne touche **aucune** clé non demandée : un test le vérifie sur le payload émis.
-- Certaines modifications ne prennent effet qu'après redémarrage (`pending`) : la CLI le signale et propose `pvectl vm reboot`.
+- Certaines modifications ne prennent effet qu'après redémarrage (`pending`) : la CLI le signale et propose `pvecli vm reboot`.
 
 **Preuve**
 ```bash
-pvectl vm set 210 --cores 4 --dry-run    # diff: cores 2 → 4
-pvectl vm set 210 --tags lab,pvectl
+pvecli vm set 210 --cores 4 --dry-run    # diff: cores 2 → 4
+pvecli vm set 210 --tags lab,pvecli
 ```
 
 **Ce que ça doit t'apprendre** — La notion de configuration *pending* dans PVE, et la règle « ne jamais élargir une écriture demandée » appliquée concrètement.
@@ -78,7 +78,7 @@ pvectl vm set 210 --tags lab,pvectl
 ### PVX-027 — Transformer une VM en template
 **Taille** S · **Type** W‼ · **Dépend de** PVX-026 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl vm template <vmid>`, afin de figer une VM préparée en modèle clonable.
+En tant qu'opérateur, je veux `pvecli vm template <vmid>`, afin de figer une VM préparée en modèle clonable.
 
 **Critères d'acceptation**
 - `POST /nodes/{n}/qemu/{id}/template`.
@@ -88,8 +88,8 @@ En tant qu'opérateur, je veux `pvectl vm template <vmid>`, afin de figer une VM
 
 **Preuve**
 ```bash
-pvectl vm template 9000 --dry-run
-pvectl vm ls -o json | jq '.[] | select(.template==1)'
+pvecli vm template 9000 --dry-run
+pvecli vm ls -o json | jq '.[] | select(.template==1)'
 ```
 
 **Ce que ça doit t'apprendre** — Qu'une opération peut être irréversible sans être une suppression. Le niveau de confirmation doit suivre la réversibilité, pas le nom du verbe.
@@ -111,9 +111,9 @@ En tant qu'opérateur, je veux créer, lister, restaurer et supprimer des snapsh
 
 **Preuve**
 ```bash
-pvectl vm snapshot create 210 pre-ansible --description "avant playbook"
-pvectl vm snapshot ls 210
-pvectl vm snapshot rollback 210 pre-ansible --dry-run
+pvecli vm snapshot create 210 pre-ansible --description "avant playbook"
+pvecli vm snapshot ls 210
+pvecli vm snapshot rollback 210 pre-ansible --dry-run
 ```
 
 **Ce que ça doit t'apprendre** — La différence entre un snapshot (retour arrière local, dépend du storage) et une sauvegarde (copie indépendante, lot M5). Confondre les deux est une erreur de PRA classique.
@@ -123,18 +123,18 @@ pvectl vm snapshot rollback 210 pre-ansible --dry-run
 ### PVX-029 — Interroger l'agent QEMU
 **Taille** S · **Type** R · **Dépend de** PVX-013 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl vm agent <vmid> ifaces`, afin de connaître l'IP réelle d'une VM — information indispensable à la génération d'inventaire Ansible (PVX-042).
+En tant qu'opérateur, je veux `pvecli vm agent <vmid> ifaces`, afin de connaître l'IP réelle d'une VM — information indispensable à la génération d'inventaire Ansible (PVX-042).
 
 **Critères d'acceptation**
 - `GET /nodes/{n}/qemu/{id}/agent/network-get-interfaces`.
 - Affiche interface, MAC, adresses IPv4/IPv6, en excluant `lo` par défaut (`--all` pour tout voir).
 - Si l'agent n'est pas installé ou non démarré, l'erreur le dit **explicitement** au lieu de renvoyer un `500` brut, et rappelle d'installer `qemu-guest-agent` dans l'invité.
-- `pvectl vm ip <vmid>` : raccourci renvoyant la première IPv4 non-loopback, exploitable en script.
+- `pvecli vm ip <vmid>` : raccourci renvoyant la première IPv4 non-loopback, exploitable en script.
 
 **Preuve**
 ```bash
-pvectl vm agent 210 ifaces
-ssh ops@$(pvectl vm ip 210) hostname
+pvecli vm agent 210 ifaces
+ssh ops@$(pvecli vm ip 210) hostname
 ```
 
 **Ce que ça doit t'apprendre** — Que PVE ne connaît pas l'IP d'une VM en DHCP : seul l'agent invité peut la lui dire. C'est le lien entre l'hyperviseur et l'inventaire d'automatisation.
@@ -155,8 +155,8 @@ En tant qu'opérateur, je veux créer, configurer et supprimer des LXC, afin de 
 
 **Preuve**
 ```bash
-pvectl storage content local --content vztmpl
-pvectl lxc create --vmid 120 --hostname web --ostemplate local:vztmpl/... \
+pvecli storage content local --content vztmpl
+pvecli lxc create --vmid 120 --hostname web --ostemplate local:vztmpl/... \
   --cores 1 --memory 512 --rootfs local-lvm:8 --net vmbr0 --dry-run
 ```
 
@@ -167,7 +167,7 @@ pvectl lxc create --vmid 120 --hostname web --ostemplate local:vztmpl/... \
 ### PVX-031 — Supprimer un guest, avec garde de propriété
 **Taille** M · **Type** W‼ · **Dépend de** PVX-030 · **PRD** §5.4, §7.6
 
-En tant qu'opérateur, je veux `pvectl vm rm <vmid>` protégé par une garde, afin de ne jamais détruire à la main une ressource possédée par Terraform.
+En tant qu'opérateur, je veux `pvecli vm rm <vmid>` protégé par une garde, afin de ne jamais détruire à la main une ressource possédée par Terraform.
 
 **Critères d'acceptation**
 - `DELETE /nodes/{n}/qemu/{id}` (et équivalent LXC), avec `--purge` et `--destroy-unreferenced-disks` documentés.
@@ -178,9 +178,9 @@ En tant qu'opérateur, je veux `pvectl vm rm <vmid>` protégé par une garde, af
 
 **Preuve** *(preuve de fin de lot M3)*
 ```bash
-pvectl vm set 210 --tags lab,terraform,managed
-pvectl vm rm 210            # → refus, message sur la propriété Terraform
-pvectl vm rm 211            # → confirmation par saisie de "211", puis suppression prouvée
+pvecli vm set 210 --tags lab,terraform,managed
+pvecli vm rm 210            # → refus, message sur la propriété Terraform
+pvecli vm rm 211            # → confirmation par saisie de "211", puis suppression prouvée
 ```
 
 **Ce que ça doit t'apprendre** — Le contrat de propriété : *qui possède quoi*. C'est la notion qui évitera, au lot M6, la dérive incompréhensible entre l'état live et le state Terraform.

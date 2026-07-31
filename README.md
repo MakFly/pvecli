@@ -1,16 +1,16 @@
-# pvectl — a Proxmox VE CLI, built to learn the API
+# pvecli — a Proxmox VE CLI, built to learn the API
 
-`pvectl` is a remote command-line client for **Proxmox VE**, written in Go. It
+`pvecli` is a remote command-line client for **Proxmox VE**, written in Go. It
 drives a homelab node through the `/api2/json` REST API — inventory, VM and LXC
 lifecycle, tasks, storage, ACLs, backups — and bridges that API to a
 Terraform / Ansible pipeline.
 
 It is **not** a clone of `pvesh`. `pvesh` only exists *on* the node, behind SSH.
-`pvectl` is a remote, typed, scriptable client with the guardrails the web UI
+`pvecli` is a remote, typed, scriptable client with the guardrails the web UI
 does not offer: `--dry-run` everywhere, JSON output, real task polling, generated
 Ansible inventories.
 
-> **Status: 55 of 55 stories done. M0 through M7 are closed.** `pvectl` reads a
+> **Status: 55 of 55 stories done. M0 through M7 are closed.** `pvecli` reads a
 > node's whole inventory, creates, configures, clones, snapshots, starts and
 > destroys both virtual machines and LXC containers, explains a `403` instead of
 > suggesting you escalate, has been used to destroy a running VM and bring its
@@ -71,7 +71,7 @@ fails if it is.
   reaches the process through the environment. It is redacted from every trace,
   and a test scans the whole `--verbose` output to prove it.
 - **stdout is data.** Progress, warnings and prompts go to stderr, so
-  `pvectl vm ls -o json | jq` always works.
+  `pvecli vm ls -o json | jq` always works.
 - **`cmd/` never speaks HTTP.** Commands call services, services call the API
   client, everything is behind interfaces — the test suite runs with no Proxmox
   node powered on.
@@ -79,7 +79,7 @@ fails if it is.
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/MakFly/pvectl/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/MakFly/pvecli/main/install.sh | sh
 ```
 
 It detects the platform, resolves the latest release, **verifies the SHA-256
@@ -91,18 +91,18 @@ is the byte that was published.
 
 | Variable | Effect |
 | --- | --- |
-| `PVECTL_VERSION` | pin a version instead of the latest |
+| `PVECLI_VERSION` | pin a version instead of the latest |
 | `PREFIX` | install root (default `~/.local` → `~/.local/bin`) |
-| `PVECTL_NO_AGENT=1` | skip the Claude Code agent |
+| `PVECLI_NO_AGENT=1` | skip the Claude Code agent |
 
 Only `linux/amd64` and `darwin/arm64` are published. Anywhere else, build from
 source — Go 1.26+:
 
 ```sh
-git clone https://github.com/MakFly/pvectl.git
-cd pvectl
-make build          # → ./pvectl, version and commit injected at link time
-make install        # → ~/.local/bin/pvectl, AND the agent in ~/.claude/agents/
+git clone https://github.com/MakFly/pvecli.git
+cd pvecli
+make build          # → ./pvecli, version and commit injected at link time
+make install        # → ~/.local/bin/pvecli, AND the agent in ~/.claude/agents/
 ```
 
 `make install` deliberately does two things. The binary lands in `PREFIX`
@@ -114,7 +114,7 @@ Onto the node itself:
 
 ```sh
 make release VERSION=v0.1.0          # dist/… + SHA256SUMS
-make install-node VERSION=v0.1.0     # scp, then `pvectl --version` there
+make install-node VERSION=v0.1.0     # scp, then `pvecli --version` there
 ```
 
 `install-node` copies to a `.new` path and moves it into place, so a binary
@@ -152,7 +152,7 @@ Nothing is published that has not been proved, in this order:
    says nothing about where it came from.
 
 ```sh
-gh attestation verify pvectl_v0.1.0_linux_amd64 --repo MakFly/pvectl
+gh attestation verify pvecli_v0.1.0_linux_amd64 --repo MakFly/pvecli
 ```
 
 ### First run
@@ -164,7 +164,7 @@ to avoid — create a dedicated one instead (PRD Appendix A):
 # On the node, once.
 pveum user add automation@pve
 pveum acl modify / --roles PVEAuditor --users automation@pve
-pveum user token add automation@pve pvectl --privsep 1
+pveum user token add automation@pve pvecli --privsep 1
 # → note the secret. It is shown ONCE and never again.
 ```
 
@@ -172,18 +172,18 @@ The secret never goes in a file and never goes in a flag — `ps` and the shell
 history both read flags. On macOS:
 
 ```sh
-security add-generic-password -a pvectl -s pvectl-token -w '<le secret>'
-export PVE_API_TOKEN_SECRET="$(security find-generic-password -a pvectl -s pvectl-token -w)"
+security add-generic-password -a pvecli -s pvecli-token -w '<le secret>'
+export PVE_API_TOKEN_SECRET="$(security find-generic-password -a pvecli -s pvecli-token -w)"
 ```
 
 Then, in order:
 
 ```sh
-pvectl config init --endpoint https://pve.example:8006 \
+pvecli config init --endpoint https://pve.example:8006 \
     --token-id 'automation@pve!pvectl' --node pve
-pvectl config trust     # pin the certificate — stronger than --insecure, costs one command
-pvectl doctor           # network → TLS → auth → node → privileges, in that order
-pvectl vm ls            # the first real answer
+pvecli config trust     # pin the certificate — stronger than --insecure, costs one command
+pvecli doctor           # network → TLS → auth → node → privileges, in that order
+pvecli vm ls            # the first real answer
 ```
 
 `doctor` is the command to run when anything is wrong. It walks the chain in
@@ -193,15 +193,15 @@ not that "it does not work".
 ### Shell completion
 
 ```sh
-pvectl completion zsh > "${fpath[1]}/_pvectl" && exec zsh
-pvectl vm show <Tab>        # → the existing VMIDs, with their names
+pvecli completion zsh > "${fpath[1]}/_pvecli" && exec zsh
+pvecli vm show <Tab>        # → the existing VMIDs, with their names
 ```
 
 The completion is dynamic: it reads `GET /cluster/resources` to offer VMIDs,
 nodes, storages, pools and tags. The answer is cached for ten seconds so
 hammering `Tab` does not hammer the API, and if the node is unreachable it says
 nothing at all rather than printing an error into the prompt.
-`pvectl completion --help` covers bash, fish and powershell.
+`pvecli completion --help` covers bash, fish and powershell.
 
 ### AI agent
 
@@ -209,9 +209,9 @@ nothing at all rather than printing an error into the prompt.
 configuration:
 
 ```sh
-pvectl ai install          # → ~/.claude/agents/proxmox-ops.md
-pvectl ai status           # absent | à jour | diffère
-pvectl ai print            # the definition, to stdout, writing nothing
+pvecli ai install          # → ~/.claude/agents/proxmox-ops.md
+pvecli ai status           # absent | à jour | diffère
+pvecli ai print            # the definition, to stdout, writing nothing
 ```
 
 The definition is `go:embed`-ed into the binary, so it travels with the CLI it
@@ -242,34 +242,34 @@ target, and a hypervisor does not run Claude Code.
 ## Usage
 
 ```sh
-pvectl --version    # version of this binary
-pvectl version      # version of the Proxmox node (GET /version)
+pvecli --version    # version of this binary
+pvecli version      # version of the Proxmox node (GET /version)
 
-pvectl config init --endpoint https://pve.example:8006 --node pve
-pvectl config trust                     # pin the node's certificate fingerprint
-pvectl config show                      # effective config, and where each value came from
-pvectl doctor                           # network → TLS → auth → node → privileges
+pvecli config init --endpoint https://pve.example:8006 --node pve
+pvecli config trust                     # pin the node's certificate fingerprint
+pvecli config show                      # effective config, and where each value came from
+pvecli doctor                           # network → TLS → auth → node → privileges
 
-pvectl node ls
-pvectl vm ls -o json | jq '.[].name'
-pvectl vm show 211
-pvectl storage content local --content iso
-pvectl task ls --running
+pvecli node ls
+pvecli vm ls -o json | jq '.[].name'
+pvecli vm show 211
+pvecli storage content local --content iso
+pvecli task ls --running
 ```
 
 Creating a virtual machine, guardrails included:
 
 ```sh
 # See the resolved payload. Nothing is sent.
-pvectl vm create 211 --name lab-app-01 --cores 2 --memory 2048 \
+pvecli vm create 211 --name lab-app-01 --cores 2 --memory 2048 \
     --import-from 'local:import/debian-13-genericcloud-amd64.qcow2' \
     --cloud-init --ci-user debian --ssh-keys ~/.ssh/id_ed25519.pub \
     --ip dhcp --dry-run
 
 # Same command without --dry-run: confirms, writes, follows the task to its
 # exitstatus, then re-reads the guest and prints THAT.
-pvectl vm start 211
-pvectl vm shutdown 211
+pvecli vm start 211
+pvecli vm shutdown 211
 ```
 
 Those first two lines are not redundant. `--version` answers offline, with no
@@ -280,8 +280,8 @@ share a name — most CLIs get this wrong.
 Containers, unprivileged unless you insist otherwise:
 
 ```sh
-pvectl storage content local --content vztmpl
-pvectl lxc create 120 --hostname web \
+pvecli storage content local --content vztmpl
+pvecli lxc create 120 --hostname web \
     --ostemplate local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst \
     --rootfs local-lvm:8 --net vmbr0 --ip 192.0.2.120/24 \
     --ssh-keys ~/.ssh/id_ed25519.pub --dry-run
@@ -292,12 +292,12 @@ container is uid 100000 on the host; in a privileged one it is root on the host,
 and the container boundary becomes the only thing between the two.
 
 The root password is never a command-line argument — `ps` and the shell history
-both read those. It comes from `--password-stdin` or `PVECTL_CT_PASSWORD`.
+both read those. It comes from `--password-stdin` or `PVECLI_CT_PASSWORD`.
 
 Destruction answers to whoever owns the resource:
 
 ```sh
-$ pvectl vm rm 212
+$ pvecli vm rm 212
 Error: le guest 212 porte le tag « managed » : il appartient à Terraform, pas à toi.
   détruis-le par son propriétaire :  terraform destroy -target=…
   sinon le state décrira une ressource qui n'existe plus.
@@ -310,9 +310,9 @@ used: an operator who cannot override a guard works around the tool instead.
 A backup is only worth what a restoration proves:
 
 ```sh
-pvectl backup run 212 --storage local --mode snapshot --compress zstd
-pvectl backup ls --check      # ← the guests with NO backup. RPO: infinite
-pvectl backup restore local:backup/vzdump-qemu-212-….vma.zst --newid 910
+pvecli backup run 212 --storage local --mode snapshot --compress zstd
+pvecli backup ls --check      # ← the guests with NO backup. RPO: infinite
+pvecli backup restore local:backup/vzdump-qemu-212-….vma.zst --newid 910
 ```
 
 `--check` is the useful half: a listing shows what exists, and the thing worth
@@ -325,10 +325,10 @@ meant to protect before anyone has checked the archive is any good.
 A `403` is an information, not an obstacle:
 
 ```sh
-$ pvectl lxc start 120                                    # → HTTP 403, exit 3
-$ pvectl access whoami --can VM.PowerMgmt --path /vms/120  # → non, exit 1
-$ pvectl access acl set --path /vms/120 --role PVEVMAdmin --token …
-$ pvectl lxc start 120                                    # → running
+$ pvecli lxc start 120                                    # → HTTP 403, exit 3
+$ pvecli access whoami --can VM.PowerMgmt --path /vms/120  # → non, exit 1
+$ pvecli access acl set --path /vms/120 --role PVEVMAdmin --token …
+$ pvecli lxc start 120                                    # → running
 ```
 
 Four commands, one identity throughout. The fix is a targeted ACL on the one
@@ -340,14 +340,14 @@ it.
 The network is the one place where the tool deliberately stops short:
 
 ```sh
-pvectl net ls pve            # the ATTENTE column marks what a pending change touches
-pvectl net apply pve         # retype the node name — this is what can cut the node off
-pvectl net revert pve        # the reflex to know BEFORE you need it
+pvecli net ls pve            # the ATTENTE column marks what a pending change touches
+pvecli net apply pve         # retype the node name — this is what can cut the node off
+pvecli net revert pve        # the reflex to know BEFORE you need it
 ```
 
 PVE separates *writing* the network configuration from *applying* it, and that
 gap is the whole safety net: until `apply`, nothing has moved and `revert`
-throws the draft away. `pvectl` reads, applies and reverts — it does not create
+throws the draft away. `pvecli` reads, applies and reverts — it does not create
 or edit interfaces, because a form that validates what you type is a better
 place for that.
 
@@ -358,11 +358,11 @@ thing an operator must see before touching anything.
 Storages are fed by the node, not through your laptop:
 
 ```sh
-pvectl storage download-url local --content iso \
+pvecli storage download-url local --content iso \
     --url https://…/alpine-virt-3.21.4-x86_64.iso \
     --checksum c72ea5… --checksum-algorithm sha256
-pvectl storage upload local ./image.qcow2 --content import   # local file, multipart
-pvectl storage rm local local:iso/alpine-virt-3.21.4-x86_64.iso
+pvecli storage upload local ./image.qcow2 --content import   # local file, multipart
+pvecli storage rm local local:iso/alpine-virt-3.21.4-x86_64.iso
 ```
 
 `download-url` opens the connection **from the node**: a 4 GB image travels over
@@ -377,7 +377,7 @@ Layered, in decreasing priority: **flags → environment → config file →
 defaults**.
 
 ```yaml
-# ~/.config/pvectl/config.yaml
+# ~/.config/pvecli/config.yaml
 current_context: lab
 contexts:
   lab:
@@ -396,7 +396,7 @@ the `pve-api` bash client from the reference lab.
 the environment instead — at the line to delete, and wherever in the document it
 was hiding. A config file is something you eventually commit.
 
-`pvectl config show` prints the *effective* configuration together with the
+`pvecli config show` prints the *effective* configuration together with the
 layer each value won on, so the precedence is observable rather than assumed:
 
 ```
@@ -437,8 +437,8 @@ Exit codes: `0` success · `1` generic · `2` usage · `3` auth/authz ·
 
 | Milestone | Scope | Proof that closes it | State |
 | --- | --- | --- | --- |
-| **M0** Foundation | Cobra skeleton, layered config, token auth, TLS pinning, error triage | `pvectl version` returns the node's real version, TLS verified, non-root token | ✅ 9/9 |
-| **M1** Read | Full read-only inventory, renderers, test harness | `pvectl vm ls -o json \| jq` works | ✅ 8/8 |
+| **M0** Foundation | Cobra skeleton, layered config, token auth, TLS pinning, error triage | `pvecli version` returns the node's real version, TLS verified, non-root token | ✅ 9/9 |
+| **M1** Read | Full read-only inventory, renderers, test harness | `pvecli vm ls -o json \| jq` works | ✅ 8/8 |
 | **M2** Tasks & state | UPID parsing, polling, write guardrails, start/stop | A `stop` shows the UPID, waits for `exitstatus`, re-reads state | ✅ 6/6 — closed by the container M3 produced: `lxc stop 120` shows the UPID, waits, re-reads `stopped` |
 | **M3** Lifecycle | create / clone / set / snapshot / template / rm, VM **and** LXC | A cloud-init template cloned end to end without the web UI | ✅ 8/8 — template 9000 built, cloned to 212, clone reachable over SSH; unprivileged container 120 created, cloned and destroyed; `vm rm` refuses a `managed` guest |
 | **M4** ACL & security | Users, tokens, ACLs, diagnosing a 403 | A `403` provoked, diagnosed, fixed by ACL — not by escalation | ✅ 5/5 — throwaway token with no ACL → `403`; `whoami --can` says why; one targeted ACL on `/vms/120` fixes it; token revoked |

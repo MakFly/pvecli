@@ -10,7 +10,7 @@ Lot de consolidation : les domaines restants de l'API, puis tout ce qui fait qu'
 ### PVX-049 — Inspecter et appliquer la configuration réseau
 **Taille** M · **Type** R / W‼ · **Dépend de** PVX-021 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl net ls|show|apply`, afin de comprendre le chemin réseau du chapitre 02 sans risquer de me couper l'accès.
+En tant qu'opérateur, je veux `pvecli net ls|show|apply`, afin de comprendre le chemin réseau du chapitre 02 sans risquer de me couper l'accès.
 
 **Critères d'acceptation**
 - `net ls <node>` → `GET /nodes/{n}/network` : interface, type (bridge/bond/vlan), ports, adresse, actif, **modifications en attente**.
@@ -22,8 +22,8 @@ En tant qu'opérateur, je veux `pvectl net ls|show|apply`, afin de comprendre le
 
 **Preuve**
 ```bash
-pvectl net ls pve                # colonne "pending" visible
-pvectl net apply pve --dry-run
+pvecli net ls pve                # colonne "pending" visible
+pvecli net apply pve --dry-run
 ```
 
 **Ce que ça doit t'apprendre** — Que PVE sépare *écrire la config réseau* et *l'appliquer* : c'est ce délai qui permet de se rattraper. Comprendre `revert` avant d'avoir besoin de `revert`.
@@ -33,7 +33,7 @@ pvectl net apply pve --dry-run
 ### PVX-050 — Gérer les pools de ressources
 **Taille** S · **Type** R / W · **Dépend de** PVX-021 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl pool ls|create|rm|add`, afin de regrouper les ressources et de simplifier les ACL.
+En tant qu'opérateur, je veux `pvecli pool ls|create|rm|add`, afin de regrouper les ressources et de simplifier les ACL.
 
 **Critères d'acceptation**
 - `pool ls` → `GET /pools` ; `pool show <id>` liste les membres.
@@ -43,9 +43,9 @@ En tant qu'opérateur, je veux `pvectl pool ls|create|rm|add`, afin de regrouper
 
 **Preuve**
 ```bash
-pvectl pool create lab --comment "ressources du parcours"
-pvectl pool add lab --vmid 210
-pvectl access acl set --path /pool/lab --role PVEVMAdmin --token 'automation@pve!pvectl' --dry-run
+pvecli pool create lab --comment "ressources du parcours"
+pvecli pool add lab --vmid 210
+pvecli access acl set --path /pool/lab --role PVEVMAdmin --token 'automation@pve!pvectl' --dry-run
 ```
 
 **Ce que ça doit t'apprendre** — Que les pools existent d'abord pour les autorisations : c'est un chemin ACL, pas un simple dossier de rangement.
@@ -55,7 +55,7 @@ pvectl access acl set --path /pool/lab --role PVEVMAdmin --token 'automation@pve
 ### PVX-051 — Alimenter les stockages en ISO et templates
 **Taille** M · **Type** W · **Dépend de** PVX-014 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl storage download-url` et `storage upload`, afin de récupérer une image cloud sans passer par l'interface web.
+En tant qu'opérateur, je veux `pvecli storage download-url` et `storage upload`, afin de récupérer une image cloud sans passer par l'interface web.
 
 **Critères d'acceptation**
 - `storage download-url <store> --url <u> --content iso|vztmpl --filename <f>` → `POST /nodes/{n}/storage/{s}/download-url`, avec `--checksum` et `--checksum-algorithm`.
@@ -67,10 +67,10 @@ En tant qu'opérateur, je veux `pvectl storage download-url` et `storage upload`
 
 **Preuve**
 ```bash
-pvectl storage download-url local --content iso \
+pvecli storage download-url local --content iso \
   --url https://cloud-images.ubuntu.com/... --filename noble.img \
   --checksum <sha256> --checksum-algorithm sha256
-pvectl storage content local --content iso
+pvecli storage content local --content iso
 ```
 
 **Ce que ça doit t'apprendre** — Que le nœud télécharge lui-même (l'image ne transite pas par ton poste), et pourquoi vérifier un checksum sur une image qui deviendra un template n'est pas optionnel.
@@ -80,7 +80,7 @@ pvectl storage content local --content iso
 ### PVX-052 — Migrer un guest
 **Taille** S · **Type** W · **Dépend de** PVX-021 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl vm migrate <vmid> --target <node>`, afin d'avoir la commande prête le jour où un second nœud rejoint le lab.
+En tant qu'opérateur, je veux `pvecli vm migrate <vmid> --target <node>`, afin d'avoir la commande prête le jour où un second nœud rejoint le lab.
 
 **Critères d'acceptation**
 - `POST /nodes/{n}/qemu/{id}/migrate` avec `target`, `online`, `with-local-disks`, `targetstorage`.
@@ -91,7 +91,7 @@ En tant qu'opérateur, je veux `pvectl vm migrate <vmid> --target <node>`, afin 
 
 **Preuve**
 ```bash
-pvectl vm migrate 210 --target pve2 --dry-run   # explicite si pve2 n'existe pas
+pvecli vm migrate 210 --target pve2 --dry-run   # explicite si pve2 n'existe pas
 ```
 
 **Ce que ça doit t'apprendre** — Les prérequis réels d'une migration (storage partagé ou copie de disques locaux) : la commande est triviale, les conditions ne le sont pas.
@@ -104,7 +104,7 @@ pvectl vm migrate 210 --target pve2 --dry-run   # explicite si pve2 n'existe pas
 En tant qu'opérateur, je veux compléter commandes, flags et VMID au `Tab`, afin de ne pas mémoriser d'identifiants numériques.
 
 **Critères d'acceptation**
-- `pvectl completion bash|zsh|fish|powershell` génère le script (Cobra).
+- `pvecli completion bash|zsh|fish|powershell` génère le script (Cobra).
 - **Complétion dynamique** des VMID/CTID, noms de nœuds, storages, tags et pools, alimentée par `GET /cluster/resources`.
 - Réponse mise en cache localement (TTL court, ~10 s) pour ne pas marteler l'API à chaque `Tab`.
 - La complétion **échoue silencieusement** si le nœud est injoignable : elle ne bloque jamais le shell et n'affiche jamais d'erreur.
@@ -112,8 +112,8 @@ En tant qu'opérateur, je veux compléter commandes, flags et VMID au `Tab`, afi
 
 **Preuve**
 ```bash
-pvectl completion zsh > "${fpath[1]}/_pvectl" && exec zsh
-pvectl vm show <Tab>     # propose les VMID existants avec leur nom
+pvecli completion zsh > "${fpath[1]}/_pvecli" && exec zsh
+pvecli vm show <Tab>     # propose les VMID existants avec leur nom
 ```
 
 **Ce que ça doit t'apprendre** — Qu'une CLI se juge à l'usage quotidien : la complétion dynamique est ce qui fait qu'on cesse d'ouvrir l'interface web « juste pour retrouver l'ID ».
@@ -150,14 +150,14 @@ En tant qu'opérateur, je veux un binaire installable sur mon poste et sur le n�
 **Critères d'acceptation**
 - `make release` produit `darwin/arm64` et `linux/amd64`, statiques, avec version et commit injectés.
 - Une somme de contrôle accompagne chaque artefact.
-- `make install-node` copie le binaire sur `192.0.2.23` via `scp` et vérifie qu'il s'exécute (`pvectl --version`).
-- Depuis le nœud, `pvectl` fonctionne en pointant sur `https://localhost:8006`, avec le même modèle de token (pas de bascule sur `root@pam`).
+- `make install-node` copie le binaire sur `192.0.2.23` via `scp` et vérifie qu'il s'exécute (`pvecli --version`).
+- Depuis le nœud, `pvecli` fonctionne en pointant sur `https://localhost:8006`, avec le même modèle de token (pas de bascule sur `root@pam`).
 - Le `README.md` du projet documente : installation, création du token (Annexe A du PRD), première commande, et renvoie vers `stories/` pour la suite.
 
 **Preuve** *(preuve de fin de lot M7)*
 ```bash
 make release && make install-node
-ssh root@192.0.2.23 'PVE_API_URL=https://localhost:8006 pvectl doctor'
+ssh root@192.0.2.23 'PVE_API_URL=https://localhost:8006 pvecli doctor'
 ```
 
 **Ce que ça doit t'apprendre** — Qu'un outil distribué se confronte à des environnements qu'on n'avait pas prévus (certificat sur `localhost`, PATH, absence de TTY) : c'est là que les choix de M0 sur la config et le TLS sont réellement mis à l'épreuve.

@@ -9,13 +9,13 @@ quelle règle retenue. C'est un livrable au même titre que le code.
 
 **Endpoint** — aucun. Story d'infra.
 
-**Ce que j'ai appris** — `pvectl --version` et `pvectl version` ne parlent pas de
+**Ce que j'ai appris** — `pvecli --version` et `pvecli version` ne parlent pas de
 la même chose, et la plupart des CLI les confondent :
 
 | | Répond quoi | D'où vient l'info |
 | --- | --- | --- |
-| `pvectl --version` | version **du binaire** | injectée au link : `-ldflags "-X main.version=…"` |
-| `pvectl version` | version **du nœud PVE** | `GET /api2/json/version` |
+| `pvecli --version` | version **du binaire** | injectée au link : `-ldflags "-X main.version=…"` |
+| `pvecli version` | version **du nœud PVE** | `GET /api2/json/version` |
 
 La confusion n'est pas cosmétique : sur un poste, `--version` répond hors ligne
 et sans token, alors que `version` a besoin du réseau, du TLS et d'une
@@ -31,7 +31,7 @@ la régression se voie.
 
 **Erreur commise** — avoir cru que `go build ./...` écrivait le binaire. Non :
 dès qu'il y a plus d'un paquet dans la liste, Go compile pour vérifier et jette
-le résultat. Ce qui produit `pvectl`, c'est `go build .` (ou `make build`, qui
+le résultat. Ce qui produit `pvecli`, c'est `go build .` (ou `make build`, qui
 seul injecte la version). Le critère d'acceptation de la story est donc à lire
 comme « la compilation passe ».
 
@@ -40,9 +40,9 @@ une commande qui échoue explicitement en pointant PVX-005, plutôt qu'un verbe
 laissé libre qu'on finira par câbler sur la mauvaise valeur.
 
 **Clôture** — dépôt initialisé et publié sur
-[MakFly/pvectl](https://github.com/MakFly/pvectl) ; `make build` injecte
+[MakFly/pvecli](https://github.com/MakFly/pvecli) ; `make build` injecte
 désormais le vrai SHA court. Le module porte son chemin définitif
-(`github.com/MakFly/pvectl`) dès la première story : le renommer coûtait trois
+(`github.com/MakFly/pvecli`) dès la première story : le renommer coûtait trois
 fichiers maintenant, quarante à M7. `golangci-lint` 2.12 passe à zéro issue,
 configuration épinglée dans `.golangci.yml`.
 
@@ -80,7 +80,7 @@ combler plus tard.
 
 2. `MkdirAll(dir, 0o700)` ne change pas les droits d'un dossier **existant**.
    Mon test créait son dossier et validait `0700` ; sur la vraie machine,
-   `~/.config/pvectl` préexistait en `0755` et y est resté. Le test disait vrai
+   `~/.config/pvecli` préexistait en `0755` et y est resté. Le test disait vrai
    et se trompait de question.
 
 **Règle retenue** — un test qui fabrique son propre environnement ne prouve rien
@@ -88,10 +88,10 @@ sur un environnement qui existait déjà. Les fonctions `MkdirAll` / `WriteFile`
 sont idempotentes sur l'existence, pas sur les permissions : cette asymétrie ne
 se voit que sur une machine qui a du passé.
 
-**Reste ouvert** — `~/.config/pvectl` est en `0755`. Le fichier de config et le
+**Reste ouvert** — `~/.config/pvecli` est en `0755`. Le fichier de config et le
 fichier `env` sont bien en `0600`, donc leur contenu est protégé, mais le
 dossier mériterait `chmod 700`. Non fait : il contient des fichiers antérieurs à
-`pvectl`, le resserrement est une décision de l'opérateur.
+`pvecli`, le resserrement est une décision de l'opérateur.
 
 ---
 
@@ -135,7 +135,7 @@ pas.
 ## 2026-07-31 — PVX-004 & PVX-005, vérifier le TLS et lire la version du nœud
 
 Deux stories sur une seule branche : la preuve de PVX-004 est littéralement
-`pvectl version` fonctionnant **sans** `--insecure`. L'une ne se démontre pas
+`pvecli version` fonctionnant **sans** `--insecure`. L'une ne se démontre pas
 sans l'autre.
 
 **Endpoint** — `GET /version`, schéma vérifié par `pvesh get /version` sur le
@@ -151,23 +151,23 @@ pas un cas dégradé de la production, c'est un cas où le pinning est le bon ou
 
 L'autre distinction qui compte : **certificat inconnu** et **certificat changé**
 ne sont pas le même événement. Le premier est une étape d'installation, il
-propose `pvectl config trust`. Le second est un incident, il refuse et donne la
+propose `pvecli config trust`. Le second est un incident, il refuse et donne la
 commande à lancer *sur la console du nœud* pour trancher. Les confondre sous un
 « certificate verify failed » commun, c'est apprendre à cliquer sur « continuer ».
 
 **Surprise** — `os.Stdin.Stat()` et `mode & os.ModeCharDevice` ne répondent pas à
 la question « suis-je dans un terminal ». `/dev/null` **est** un périphérique
-caractère : `pvectl config trust </dev/null` traversait le test, posait sa
+caractère : `pvecli config trust </dev/null` traversait le test, posait sa
 question dans le vide, et échouait sur la lecture au lieu de refuser d'emblée.
 Le code de sortie était bon (5) pour la mauvaise raison, et le message mentait.
 `term.IsTerminal` fait l'ioctl qui répond vraiment. C'est exactement le piège
 noté au journal lors de la rotation du mot de passe root — je l'ai reproduit en
 code avant de le reconnaître.
 
-**Erreur commise** — mes tests de `cmd` lisaient mon vrai `~/.config/pvectl`. Le
+**Erreur commise** — mes tests de `cmd` lisaient mon vrai `~/.config/pvecli`. Le
 test de `version` passait parce que *ma* machine a une configuration valide ;
 sur une machine vierge il aurait échoué pour une autre raison que celle testée.
-Corrigé par un `TestMain` qui pointe `PVECTL_CONFIG` sur un dossier temporaire
+Corrigé par un `TestMain` qui pointe `PVECLI_CONFIG` sur un dossier temporaire
 et vide les variables `PVE_*`.
 
 **Règle retenue** — un test qui n'isole pas son environnement ne teste pas le
@@ -267,11 +267,11 @@ pensé.
 
 ## Lot M0 — clos le 2026-07-31
 
-**Preuve obtenue** : `pvectl version` renvoie `PVE 9.2.2 (release 9.2, repoid
+**Preuve obtenue** : `pvecli version` renvoie `PVE 9.2.2 (release 9.2, repoid
 b9984c6d90a4bd80)`, en TLS vérifié par empreinte épinglée — pas `--insecure` —
 avec le token non-root `automation@pve!pvectl`.
 
-`pvectl doctor` confirme la chaîne complète : endpoint joignable, cluster
+`pvecli doctor` confirme la chaîne complète : endpoint joignable, cluster
 interrogeable, nœud `pve` online, privilèges en lecture seule (aucun droit hors
 `*.Audit`).
 
@@ -360,7 +360,7 @@ chercher un endpoint manquant pendant que le bug est dans la construction de
 l'URL.
 
 Deuxième surprise, plus discrète : une slice Go `nil` se sérialise en `null`,
-pas en `[]`. Sur un lab vierge, `pvectl vm ls -o json | jq '.[].name'` échouait
+pas en `[]`. Sur un lab vierge, `pvecli vm ls -o json | jq '.[].name'` échouait
 donc, non pas parce qu'il n'y a pas de VM, mais parce que la liste vide était
 mal encodée. La preuve de fin de lot passait à côté de son propre sujet.
 
@@ -377,8 +377,8 @@ en une seconde.
 **Endpoints** — `POST /nodes/{n}/qemu/{id}/status/{action}`, `POST /nodes/{n}/qemu`,
 `PUT .../config`, `DELETE .../qemu/{id}`. Tous vérifiés dans `PVE::API2::Qemu`.
 
-**Le résultat** — `lab-app-01` (vmid 211), Debian 13, créée par `pvectl`,
-démarrée par `pvectl`, joignable en SSH depuis le poste avec la clé injectée par
+**Le résultat** — `lab-app-01` (vmid 211), Debian 13, créée par `pvecli`,
+démarrée par `pvecli`, joignable en SSH depuis le poste avec la clé injectée par
 cloud-init. Rien n'est passé par l'interface web.
 
 **Ce que ça a appris — le moindre privilège coûte, et c'est le sujet.** Le token
@@ -389,7 +389,7 @@ successifs, tous deux instructifs :
    `import-from=/var/lib/vz/import/image.qcow2` avec un token non-root. La bonne
    forme est un **volid** : `local:import/debian-13-genericcloud-amd64.qcow2`.
    Le chemin de fichier est un privilège root ; l'identifiant de volume est
-   l'abstraction que l'API expose à tout le monde. `pvectl storage content local
+   l'abstraction que l'API expose à tout le monde. `pvecli storage content local
    --content import` donne exactement cette chaîne — l'outil servait déjà.
 2. `Permission check failed (/sdn/zones/localnetwork/vmbr0, SDN.Use)` — PVE 9
    protège les ponts réseau par le SDN. Attacher une carte à `vmbr0` exige
@@ -431,7 +431,7 @@ paraphrase n'aurait rien montré.
 schémas lus dans `PVE::API2::Qemu` (`clone_vm`, `template`) sur le nœud.
 
 **Preuve de fin de lot M3 obtenue** — template `9000` (`debian13-cloudinit`)
-construit par `pvectl`, cloné en `212` (`lab-app-02`), clone joignable en SSH
+construit par `pvecli`, cloné en `212` (`lab-app-02`), clone joignable en SSH
 avec la clé que le template portait. Sans ouvrir l'interface web.
 
 **Ce que ça a appris** — le niveau de confirmation doit suivre la
@@ -481,7 +481,7 @@ sur un pont, et rien de plus : c'est l'invité qui sait dans quel réseau il s'e
 inséré. L'agent est le seul canal par lequel il peut le dire — d'où le lien
 direct avec l'inventaire Ansible de PVX-042. Je l'avais vécu sans le nommer :
 pour trouver l'adresse de la VM 211, j'avais dû lire la table ARP du nœud.
-`pvectl vm ip 212` répond maintenant en une commande.
+`pvecli vm ip 212` répond maintenant en une commande.
 
 **Vérifié pour de vrai, pas seulement en code** — fichier témoin créé, snapshot
 pris, fichier supprimé et remplacé par un autre, retour arrière : le témoin est
@@ -543,7 +543,7 @@ dépend de quelqu'un qui pense à le mettre n'est pas un défaut.
 
 **Un `HTTP 200` n'est pas un succès — et un `exitstatus` ≠ `OK` n'est pas un
 échec.** La création du conteneur a fini en `WARNINGS: 1` (« Systemd 257
-detected. You may need to enable nesting »). Le conteneur existait, et `pvectl`
+detected. You may need to enable nesting »). Le conteneur existait, et `pvecli`
 annonçait un échec — pire, il sautait le post-read, donc il ne montrait pas la
 chose qu'il venait de créer. Corrigé par `Task.Succeeded()` : `OK` **et**
 `WARNINGS: n` sont des succès, et les avertissements sont affichés au lieu
@@ -565,7 +565,7 @@ de `post()`, et ça vaut d'être écrit ici : le code partagé avec `vm rm --pur
 était faux depuis M2, et aucun test ne pouvait le voir — le serveur de rejeu
 accepte n'importe quoi.
 
-**Le contrat de propriété.** `pvectl vm rm 212` sur une ressource taguée
+**Le contrat de propriété.** `pvecli vm rm 212` sur une ressource taguée
 `managed` est refusé, dans le pre-read, avant qu'une seule écriture ne parte.
 Le message ne dit pas « interdit », il dit **qui** est le propriétaire :
 `terraform destroy`. C'est la notion qui évitera, au lot M6, la dérive entre
@@ -580,7 +580,7 @@ disant ce qui avait été demandé plutôt que ce qui s'était passé.
 - Le clone d'un conteneur ordinaire affichait « clone lié » alors que PVE avait
   rsyncé 546 Mo. Le clone lié n'existe qu'à partir d'un **template** ; ailleurs
   le drapeau est ignoré. La ligne lit maintenant la source.
-- Le message « arrête-le d'abord » proposait `pvectl qemu shutdown 900`. Le type
+- Le message « arrête-le d'abord » proposait `pvecli qemu shutdown 900`. Le type
   de guest côté API s'appelle `qemu`, la commande s'appelle `vm` : une suggestion
   qu'on ne peut pas copier-coller est une suggestion qui ne sert à rien.
 
@@ -602,7 +602,7 @@ Un *rôle* est un paquet nommé de privilèges (`PVEVMAdmin`). Une *ACL* est un
 triplet (chemin, identité, rôle). Les droits se lisent sur un **chemin**, jamais
 sur un objet. Tant que ces trois-là ne sont pas séparés, chaque 403 reste une
 énigme — et c'était le cas depuis M0, où le message d'erreur renvoyait déjà vers
-un `pvectl access whoami` qui n'existait pas.
+un `pvecli access whoami` qui n'existait pas.
 
 **Une ACL plus profonde REMPLACE l'héritée, elle ne s'y ajoute pas.** C'est la
 découverte du lot, et elle s'est faite en me tirant dans le pied : j'ai accordé
@@ -629,8 +629,8 @@ maintenant explicitement, et le pre-read d'`acl set` écrit « aucune ACL
 `['or', ['userid-param', 'self'], …]`, ce qui se lit « un utilisateur peut créer
 ses propres tokens ». Testé avec le token `automation@pve!pvectl` sur son propre
 utilisateur : **403**. Le « self » désigne l'utilisateur authentifié, et un token
-n'en est pas un. D'où l'amorçage : accorder à `pvectl` le droit d'accorder des
-droits ne peut pas venir de `pvectl`. Une seule fois, en SSH root, et ciblé.
+n'en est pas un. D'où l'amorçage : accorder à `pvecli` le droit d'accorder des
+droits ne peut pas venir de `pvecli`. Une seule fois, en SSH root, et ciblé.
 
 **Erreur commise, la plus coûteuse du projet jusqu'ici.** La création du token a
 réussi côté nœud, puis le décodage a échoué :
@@ -657,11 +657,11 @@ Deux corrections, et la seconde compte autant que la première :
 `privsep=1`, aucune ACL — donc aucun droit :
 
 ```
-$ pvectl lxc start 120            → HTTP 403, code de sortie 3
-$ pvectl access whoami --can VM.PowerMgmt --path /vms/120   → non, code 1
-$ pvectl access acl set --path /vms/120 --role PVEVMAdmin --token …!readonly
-$ pvectl access whoami --can VM.PowerMgmt --path /vms/120   → oui, code 0
-$ pvectl lxc start 120            → running
+$ pvecli lxc start 120            → HTTP 403, code de sortie 3
+$ pvecli access whoami --can VM.PowerMgmt --path /vms/120   → non, code 1
+$ pvecli access acl set --path /vms/120 --role PVEVMAdmin --token …!readonly
+$ pvecli access whoami --can VM.PowerMgmt --path /vms/120   → oui, code 0
+$ pvecli lxc start 120            → running
 ```
 
 Le **privilège manquant** était `VM.PowerMgmt`, le **chemin** `/vms/120`, le
@@ -747,14 +747,14 @@ d'abord qu'on vérifie l'observation.
 **Trois surprises de schéma :**
 
 - `remove` vaut **1 par défaut** sur `vzdump` : une sauvegarde en supprime
-  d'autres, en appliquant la rétention du stockage. `pvectl` envoie `remove=0`
+  d'autres, en appliquant la rétention du stockage. `pvecli` envoie `remove=0`
   sauf `--prune`. Effet de bord heureux : `remove=1` exige `Datastore.Allocate`,
   que le token de moindre privilège n'a pas — le défaut sûr est aussi le seul
   qui marche.
 - `compress=0` veut dire **aucune compression**, pas « niveau zéro ». Les autres
   valeurs sont des noms d'algorithmes, pas des niveaux.
 - `bwlimit`, `ionice` et `performance` exigent `Sys.Modify` sur `/`. Un token de
-  moindre privilège ne peut pas les passer, donc `pvectl` ne les expose pas.
+  moindre privilège ne peut pas les passer, donc `pvecli` ne les expose pas.
 
 **La preuve d'une sauvegarde n'est pas son `exitstatus`.** Le post-read compte
 les archives avant et après, et échoue si aucune n'est apparue. Un `vzdump` qui
@@ -776,7 +776,7 @@ d'API, il ajoute une **confrontation** entre deux sources de vérité.
 
 ### D2 tranchée : on interroge Terraform, on ne lit pas son state
 
-`pvectl iac state` appelle `terraform show -json` et ne touche jamais
+`pvecli iac state` appelle `terraform show -json` et ne touche jamais
 `terraform.tfstate`. Le state est une **base de données** dont Terraform possède
 le format ; ce format a déjà changé entre versions mineures. Un outil qui le
 parse casse à une mise à jour à laquelle il n'a pas participé.
@@ -871,7 +871,7 @@ Premier `terraform apply` : **11 min 54 s**. Le provider attend, avec
 template `9000` n'avait jamais eu le paquet `qemu-guest-agent`. L'apply s'est
 terminé **à la seconde où je l'ai installé à la main par SSH**.
 
-Le template a donc été reconstruit avec `pvectl` lui-même : `vm clone 9000
+Le template a donc été reconstruit avec `pvecli` lui-même : `vm clone 9000
 --newid 9001 --full`, `vm start`, installation de l'agent, `cloud-init clean
 --logs --seed`, `machine-id` vidé, `vm shutdown`, `vm template 9001`.
 
@@ -888,8 +888,8 @@ bien.)*
 
 | Étape | Horodatage (UTC) |
 | --- | --- |
-| `pvectl iac apply --yes` — 210 détruite puis recréée | 19:52:53 → 19:53:16 (23 s) |
-| `pvectl iac inventory` — IP via l'agent QEMU | 19:53:27 |
+| `pvecli iac apply --yes` — 210 détruite puis recréée | 19:52:53 → 19:53:16 (23 s) |
+| `pvecli iac inventory` — IP via l'agent QEMU | 19:53:27 |
 | `iac configure site.yml --idempotence` — Nginx natif | 19:53:43 → 19:53:59 |
 | `iac configure docker.yml --idempotence` — Caddy sur Swarm | 19:54:09 → 19:55:21 |
 
@@ -901,9 +901,9 @@ Les deux applications servies, contenu vérifié :
 ```
 
 Puis la dérive : `memory=3072` posé par un **appel API direct** — ni Terraform,
-ni pvectl, c'est-à-dire ce que fait l'interface web quand on clique.
-`pvectl iac drift` l'attrape (`memory  déclaré 2048 Mio · réel 3072 Mio`,
-sortie 1), `pvectl iac apply` la résorbe, le post-vol le relit par l'API.
+ni pvecli, c'est-à-dire ce que fait l'interface web quand on clique.
+`pvecli iac drift` l'attrape (`memory  déclaré 2048 Mio · réel 3072 Mio`,
+sortie 1), `pvecli iac apply` la résorbe, le post-vol le relit par l'API.
 
 **Et la correction n'est pas gratuite.** Ramener la mémoire à 2048 a **redémarré
 la VM**. Nginx est revenu tout de suite ; le service Swarm a mis ~25 s à
@@ -973,7 +973,7 @@ liste que l'index. Décoder un objet ici donne une erreur de type qui ressemble 
 un endpoint cassé.
 
 Enfin, `delete_pool` refuse tout pool non vide, et **il n'y a pas de `force`
-dans l'API**. Le `--force` de `pvectl pool rm` n'est donc pas un drapeau
+dans l'API**. Le `--force` de `pvecli pool rm` n'est donc pas un drapeau
 transmis au nœud : ce sont deux requêtes, et le plan les affiche toutes les
 deux. Vider un pool est une écriture à part entière.
 
@@ -1039,7 +1039,7 @@ dix minutes pourquoi un nom parfaitement valide ne l'est pas.
 ### La somme de contrôle, vérifiée en la faisant échouer
 
 Une somme volontairement fausse : la tâche télécharge les 64 Mio, calcule,
-compare, échoue, et le nœud **supprime le fichier partiel**. `pvectl` rend 4 —
+compare, échoue, et le nœud **supprime le fichier partiel**. `pvecli` rend 4 —
 le code d'une tâche PVE échouée, pas d'une requête refusée — et affiche les
 dernières lignes du journal.
 
@@ -1111,7 +1111,7 @@ correspond au nom du certificat. Une vérification par autorité et par nom
 échouerait dans les deux cas.
 
 L'épinglage d'empreinte, lui, **ne dépend d'aucun nom**. La même empreinte
-fonctionne des deux côtés, et `pvectl config trust` sur le nœud a suffi :
+fonctionne des deux côtés, et `pvecli config trust` sur le nœud a suffi :
 
 ```
 TLS       empreinte épinglée
@@ -1143,7 +1143,7 @@ déclencher ne garde rien.
 `make release && make install-node`, puis, depuis le nœud :
 
 ```
-PVE_API_URL=https://localhost:8006 pvectl doctor
+PVE_API_URL=https://localhost:8006 pvecli doctor
 TLS       empreinte épinglée
 ✓  endpoint joignable et version lue — PVE 9.2.2
 ```
@@ -1153,7 +1153,7 @@ TLS       empreinte épinglée
 ## Recette finale — le harnais d'intégration ne se vérifiait pas lui-même
 
 `make integration` échouait sur les deux tests qui parlent au vrai nœud, à
-l'instant précis où `pvectl doctor` répondait quatre ✓ juste à côté :
+l'instant précis où `pvecli doctor` répondait quatre ✓ juste à côté :
 
 ```
 --- FAIL: TestLiveVersionAndInventory
@@ -1161,8 +1161,8 @@ l'instant précis où `pvectl doctor` répondait quatre ✓ juste à côté :
 ```
 
 La suite ne lisait la confiance TLS que depuis `PVE_TLS_FINGERPRINT`. Or
-l'empreinte épinglée par `pvectl config trust` est écrite dans le **fichier** de
-configuration, et `~/.config/pvectl/env` ne l'exporte pas — il n'a pas à le
+l'empreinte épinglée par `pvecli config trust` est écrite dans le **fichier** de
+configuration, et `~/.config/pvecli/env` ne l'exporte pas — il n'a pas à le
 faire, c'est une donnée de contexte, pas un secret. Le harnais montait donc un
 client en vérification système là où la CLI, elle, épinglait.
 
@@ -1192,7 +1192,7 @@ Trois décisions, chacune contre une alternative plus simple.
 **`go:embed` plutôt qu'un fichier livré à côté.** Un agent qui décrit des
 options que le binaire local n'a pas est pire qu'aucun agent : il fait perdre du
 temps avec autorité. Embarquée, la définition ne peut pas diverger de la version
-qu'elle documente, et `pvectl ai install` ne va rien chercher sur le réseau.
+qu'elle documente, et `pvecli ai install` ne va rien chercher sur le réseau.
 
 **Un refus d'écraser, plutôt qu'une écriture idempotente.** Si le fichier
 présent diffère de la définition embarquée, l'installation s'arrête. La

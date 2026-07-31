@@ -1,7 +1,7 @@
 # M2 — Tâches asynchrones & changements d'état
 
 > Chapitre 03 du manuel · PVX-018 → PVX-023
-> **Preuve de fin de lot** : un `pvectl lxc stop <ctid>` affiche l'UPID, attend l'`exitstatus`, puis relit `status/current` — démontré sur le conteneur Nginx du chapitre 03.
+> **Preuve de fin de lot** : un `pvecli lxc stop <ctid>` affiche l'UPID, attend l'`exitstatus`, puis relit `status/current` — démontré sur le conteneur Nginx du chapitre 03.
 
 C'est le lot le plus important du projet. Tout ce qui suit (M3 à M7) réutilise le pipeline de mutation construit ici. Une écriture qui ne passe pas par ce pipeline est un bug.
 
@@ -37,15 +37,15 @@ En tant qu'opérateur, je veux que la CLI attende la fin réelle d'une tâche, a
 - `TaskService.Wait(upid)` interroge `GET /nodes/{node}/tasks/{upid}/status` avec un backoff 1 s → 5 s.
 - Attend un état terminal (`status = stopped`) puis lit `exitstatus`.
 - `exitstatus = "OK"` → succès ; toute autre valeur → échec, code de sortie `4`, et récupération automatique des 20 dernières lignes de `GET .../tasks/{upid}/log`.
-- `--timeout` global respecté ; à expiration, l'UPID est affiché avec la commande exacte pour reprendre le suivi (`pvectl task wait <upid>`).
+- `--timeout` global respecté ; à expiration, l'UPID est affiché avec la commande exacte pour reprendre le suivi (`pvecli task wait <upid>`).
 - Un `Ctrl-C` pendant l'attente **n'annule pas la tâche côté serveur** : le message le dit explicitement et rappelle l'UPID.
 - Indicateur de progression sur stderr, désactivé si non-TTY.
-- `pvectl task wait <upid>` expose la fonction en commande autonome.
+- `pvecli task wait <upid>` expose la fonction en commande autonome.
 
 **Preuve**
 ```bash
 go test ./internal/service -run TestWaitPollsUntilTerminal
-pvectl task wait <UPID>    # sur une tâche déjà terminée → réponse immédiate
+pvecli task wait <UPID>    # sur une tâche déjà terminée → réponse immédiate
 ```
 
 **Ce que ça doit t'apprendre** — La règle centrale du playbook : *« Treat acceptance as the beginning of the operation, not success »*. Un 200 signifie « j'ai accepté la demande », rien de plus.
@@ -66,8 +66,8 @@ En tant qu'opérateur, je veux voir exactement ce qui va être envoyé avant que
 
 **Preuve**
 ```bash
-pvectl vm stop 100 --dry-run     # affiche le plan, n'appelle rien
-echo | pvectl vm stop 100; echo $?   # → 5, refus sans TTY ni --yes
+pvecli vm stop 100 --dry-run     # affiche le plan, n'appelle rien
+echo | pvecli vm stop 100; echo $?   # → 5, refus sans TTY ni --yes
 ```
 
 **Ce que ça doit t'apprendre** — Qu'un `--dry-run` honnête (qui affiche le *payload résolu*, pas une paraphrase) est le meilleur outil d'apprentissage : il te montre l'API que tu es en train d'appeler.
@@ -82,7 +82,7 @@ En tant que développeur, je veux une fonction unique qui orchestre toute écrit
 **Critères d'acceptation**
 - Séquence imposée : **1. pre-read** (l'objet existe ? est-il verrouillé ?) → **2. plan** rendu → **3. gate** (`--dry-run` / confirmation) → **4. write** → **5. poll** UPID → **6. log** si échec → **7. post-read** (preuve indépendante).
 - Si la réponse n'est pas un UPID (mutation synchrone), les étapes 5 et 6 sont sautées, jamais l'étape 7.
-- Un verrou (`lock`) détecté au pre-read interrompt avant l'écriture et suggère `pvectl task ls --running`.
+- Un verrou (`lock`) détecté au pre-read interrompt avant l'écriture et suggère `pvecli task ls --running`.
 - Le résultat final affiché est **le post-read**, pas l'écho de la requête.
 - Un test de service vérifie l'ordre exact des appels via un mock, et échoue si le post-read est absent.
 - Documenté dans `docs/API-MAP.md` comme contrat d'écriture du projet.
@@ -110,8 +110,8 @@ En tant qu'opérateur, je veux démarrer, arrêter et redémarrer une VM, afin d
 
 **Preuve**
 ```bash
-pvectl vm stop 100 --dry-run
-pvectl vm start 100          # UPID affiché → attente → post-read: status=running
+pvecli vm stop 100 --dry-run
+pvecli vm start 100          # UPID affiché → attente → post-read: status=running
 ```
 
 **Ce que ça doit t'apprendre** — Que `stop` et `shutdown` sont deux endpoints différents avec deux conséquences différentes sur les données du guest. La confusion entre les deux est la première cause de corruption en homelab.
@@ -130,9 +130,9 @@ En tant qu'opérateur, je veux les mêmes actions sur les LXC, afin de valider l
 
 **Preuve** *(preuve de fin de lot M2)*
 ```bash
-pvectl lxc ls                        # repérer le CTID du Nginx
-pvectl lxc stop <ctid>               # UPID → poll → exitstatus OK → post-read status=stopped
-pvectl lxc start <ctid>
+pvecli lxc ls                        # repérer le CTID du Nginx
+pvecli lxc stop <ctid>               # UPID → poll → exitstatus OK → post-read status=stopped
+pvecli lxc start <ctid>
 curl -sI http://<ip-du-lxc>/ | head -1   # → HTTP/1.1 200 OK
 ```
 

@@ -1,7 +1,7 @@
 # M5 — Sauvegarde & plan de reprise
 
 > Chapitre 07 du manuel · PVX-037 → PVX-040
-> **Preuve de fin de lot** : une VM est détruite puis restaurée par `pvectl`, avec RPO et RTO réellement mesurés et consignés.
+> **Preuve de fin de lot** : une VM est détruite puis restaurée par `pvecli`, avec RPO et RTO réellement mesurés et consignés.
 
 Lot indépendant de M4. Il introduit les tâches **longues** : le poller de PVX-019 y est mis à l'épreuve pour la première fois sur plusieurs minutes.
 
@@ -10,7 +10,7 @@ Lot indépendant de M4. Il introduit les tâches **longues** : le poller de PVX-
 ### PVX-037 — Lancer une sauvegarde
 **Taille** M · **Type** W · **Dépend de** PVX-021 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl backup run <vmid>`, afin de produire une sauvegarde à la demande avant toute opération risquée.
+En tant qu'opérateur, je veux `pvecli backup run <vmid>`, afin de produire une sauvegarde à la demande avant toute opération risquée.
 
 **Critères d'acceptation**
 - `POST /nodes/{n}/vzdump` avec `vmid`, `storage`, `mode` (`snapshot`/`suspend`/`stop`), `compress` (`zstd`/`gzip`/`lzo`), `notes-template`, `remove=0`.
@@ -22,9 +22,9 @@ En tant qu'opérateur, je veux `pvectl backup run <vmid>`, afin de produire une 
 
 **Preuve**
 ```bash
-pvectl backup run 210 --storage local --mode snapshot --compress zstd --dry-run
-pvectl backup run 210 --storage local --mode snapshot --compress zstd
-pvectl backup ls --vmid 210        # l'archive existe
+pvecli backup run 210 --storage local --mode snapshot --compress zstd --dry-run
+pvecli backup run 210 --storage local --mode snapshot --compress zstd
+pvecli backup ls --vmid 210        # l'archive existe
 ```
 
 **Ce que ça doit t'apprendre** — Ce que « mode snapshot » implique réellement : une cohérence au niveau bloc, pas au niveau applicatif. Une base de données peut se restaurer incohérente malgré un `exitstatus OK`.
@@ -34,19 +34,19 @@ pvectl backup ls --vmid 210        # l'archive existe
 ### PVX-038 — Lister les sauvegardes disponibles
 **Taille** S · **Type** R · **Dépend de** PVX-014 · **PRD** §6.2
 
-En tant qu'opérateur, je veux `pvectl backup ls`, afin de savoir ce que je peux restaurer et depuis quand.
+En tant qu'opérateur, je veux `pvecli backup ls`, afin de savoir ce que je peux restaurer et depuis quand.
 
 **Critères d'acceptation**
 - `GET /nodes/{n}/storage/{s}/content?content=backup`, sur tous les storages acceptant `backup` si `--storage` est omis.
 - Colonnes : volid, VMID, date, taille, format, notes.
 - Tri par date décroissante ; `--vmid` filtre.
 - **Colonne `âge`** mise en avant : c'est la mesure directe du RPO effectif.
-- `pvectl backup ls --check` signale les guests **sans aucune sauvegarde** — l'information la plus utile du lot.
+- `pvecli backup ls --check` signale les guests **sans aucune sauvegarde** — l'information la plus utile du lot.
 
 **Preuve**
 ```bash
-pvectl backup ls
-pvectl backup ls --check     # liste les VM/LXC non sauvegardés
+pvecli backup ls
+pvecli backup ls --check     # liste les VM/LXC non sauvegardés
 ```
 
 **Ce que ça doit t'apprendre** — Que le RPO ne se décrète pas : il se lit sur l'âge de la sauvegarde la plus récente. Un guest absent de la liste a un RPO infini.
@@ -56,7 +56,7 @@ pvectl backup ls --check     # liste les VM/LXC non sauvegardés
 ### PVX-039 — Restaurer une sauvegarde
 **Taille** L · **Type** W‼ · **Dépend de** PVX-038 · **PRD** §6.2, §7.6
 
-En tant qu'opérateur, je veux `pvectl backup restore <volid> --newid <id>`, afin de vérifier qu'une sauvegarde est réellement exploitable.
+En tant qu'opérateur, je veux `pvecli backup restore <volid> --newid <id>`, afin de vérifier qu'une sauvegarde est réellement exploitable.
 
 **Critères d'acceptation**
 - `POST /nodes/{n}/qemu` (ou `/lxc`) avec le paramètre `archive`, plus `vmid`, `storage`, `force`.
@@ -68,9 +68,9 @@ En tant qu'opérateur, je veux `pvectl backup restore <volid> --newid <id>`, afi
 
 **Preuve**
 ```bash
-pvectl backup restore local:backup/vzdump-qemu-210-....zst --newid 910 --dry-run
-pvectl backup restore local:backup/vzdump-qemu-210-....zst --newid 910
-pvectl vm start 910 && pvectl vm ip 910
+pvecli backup restore local:backup/vzdump-qemu-210-....zst --newid 910 --dry-run
+pvecli backup restore local:backup/vzdump-qemu-210-....zst --newid 910
+pvecli vm start 910 && pvecli vm ip 910
 ```
 
 **Ce que ça doit t'apprendre** — La règle du playbook : *une sauvegarde n'est validée que par une restauration réellement testée*. Un `exitstatus OK` sur un `vzdump` ne prouve rien du contenu de l'archive.
@@ -83,19 +83,19 @@ pvectl vm start 910 && pvectl vm ip 910
 En tant qu'apprenant, je veux détruire puis restaurer une VM en mesurant le temps, afin de transformer « RPO/RTO » en deux nombres vérifiés.
 
 **Critères d'acceptation**
-- Scénario complet exécuté **uniquement** avec `pvectl` : sauvegarde → destruction → restauration → démarrage → validation applicative (`curl` sur le service).
+- Scénario complet exécuté **uniquement** avec `pvecli` : sauvegarde → destruction → restauration → démarrage → validation applicative (`curl` sur le service).
 - **RPO mesuré** = écart entre la dernière sauvegarde et le moment de la panne simulée.
 - **RTO mesuré** = durée entre la destruction et le service à nouveau fonctionnel.
 - Les deux valeurs, la procédure suivie et les écarts par rapport à l'attendu sont consignés dans `docs/LEARNING-LOG.md`.
 - Ce qui **n'a pas** été restauré (règles de pare-feu, entrées DNS, secrets hors image, adhésion Tailscale) est listé explicitement.
-- Une commande de confort `pvectl dr drill --vmid <id>` enchaîne le scénario en `--dry-run` par défaut.
+- Une commande de confort `pvecli dr drill --vmid <id>` enchaîne le scénario en `--dry-run` par défaut.
 
 **Preuve** *(preuve de fin de lot M5)*
 ```bash
-pvectl backup run 210 --storage local
-pvectl vm rm 210 --force-unmanaged      # panne simulée, chronomètre lancé
-pvectl backup restore <volid> --newid 210
-pvectl vm start 210 && curl -sI http://$(pvectl vm ip 210)/ | head -1
+pvecli backup run 210 --storage local
+pvecli vm rm 210 --force-unmanaged      # panne simulée, chronomètre lancé
+pvecli backup restore <volid> --newid 210
+pvecli vm start 210 && curl -sI http://$(pvecli vm ip 210)/ | head -1
 # → RPO et RTO notés dans docs/LEARNING-LOG.md
 ```
 

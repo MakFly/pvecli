@@ -23,7 +23,7 @@ Imagine que tu veux un **gâteau**.
 | La **recette écrite** sur un papier | le fichier Terraform |
 | Le **cuisinier** qui suit la recette | Terraform |
 | Le **décorateur** qui met le glaçage | Ansible |
-| Ta **télécommande** pour regarder dans le four | `pvectl` |
+| Ta **télécommande** pour regarder dans le four | `pvecli` |
 
 Trois règles, et c'est tout le truc :
 
@@ -42,7 +42,7 @@ Trois règles, et c'est tout le truc :
    TON MAC                                       LE SERVEUR PROXMOX (pve)
    ───────                                       ────────────────────────
 
-   pvectl  ─────── crée le moule ──────────────►  ┌────────────────────┐
+   pvecli  ─────── crée le moule ──────────────►  ┌────────────────────┐
    (télécommande)                                 │  template 9001     │
                                                   │  Debian 13 + agent │
                                                   └─────────┬──────────┘
@@ -54,7 +54,7 @@ Trois règles, et c'est tout le truc :
       IP .210                                      │  192.0.2.210     │
                                                    └─────────┬──────────┘
                                                              │
-   pvectl iac inventory ◄── « elle est où ? » ───────────────┤
+   pvecli iac inventory ◄── « elle est où ? » ───────────────┤
         │        (l'agent dans la VM répond son adresse)     │
         ▼                                                    │
    ansible ───────── installe nginx ───────────────────────► ▼
@@ -73,8 +73,8 @@ marche, mais Ansible ne trouve personne à décorer.
 ## 3. Avant de commencer (une seule fois)
 
 ```bash
-source ~/.config/pvectl/env      # charge l'adresse du serveur et le token
-pvectl doctor                    # doit afficher quatre ✓
+source ~/.config/pvecli/env      # charge l'adresse du serveur et le token
+pvecli doctor                    # doit afficher quatre ✓
 ```
 
 Si les quatre ✓ ne sont pas là, **arrête-toi ici** : rien de ce qui suit ne
@@ -90,7 +90,7 @@ posée sur le serveur (`local:import/debian-13-genericcloud-amd64.qcow2`).
 ### 4.1 — Créer une VM ordinaire à partir de l'image
 
 ```bash
-pvectl vm create 9001 \
+pvecli vm create 9001 \
   --name debian13-cloudinit-agent \
   --import-from local:import/debian-13-genericcloud-amd64.qcow2 \
   --storage local-lvm \
@@ -105,10 +105,10 @@ entrer : pas d'utilisateur, pas de clé, pas de réseau configuré.
 ### 4.2 — Lui donner une adresse fixe, et l'allumer
 
 ```bash
-pvectl vm set 9001 \
+pvecli vm set 9001 \
   --set ipconfig0='ip=192.0.2.211/24,gw=192.0.2.1' \
   --set nameserver='192.0.2.1' --yes
-pvectl vm start 9001 --yes
+pvecli vm start 9001 --yes
 ```
 
 > **Pourquoi pas le DHCP ?** Sur ce réseau, le serveur DHCP ne répond pas de
@@ -139,9 +139,9 @@ ssh ops@192.0.2.211 \
    sudo truncate -s 0 /etc/machine-id && \
    sudo rm -f /etc/ssh/ssh_host_*'
 
-pvectl vm stop 9001 --yes
-pvectl vm set 9001 --set ipconfig0='ip=dhcp' --yes
-pvectl vm template 9001 --yes
+pvecli vm stop 9001 --yes
+pvecli vm set 9001 --set ipconfig0='ip=dhcp' --yes
+pvecli vm template 9001 --yes
 ```
 
 Traduction en langage de 8 ans : **on efface le nom écrit sur le moule** avant
@@ -152,7 +152,7 @@ c'est une machine qui n'existe pas.
 Vérifie :
 
 ```bash
-pvectl guest ls
+pvecli guest ls
 # VMID  NOM                        STATUT   TEMPLATE
 # 9001  debian13-cloudinit-agent   stopped  oui        ← « oui » = c'est un moule
 ```
@@ -210,15 +210,15 @@ donne-lui un disque de 20 Go, branche-la sur `vmbr0`*.
 ## 6. Étape 3 — cuisiner (18 s)
 
 ```bash
-source ~/.config/pvectl/env
+source ~/.config/pvecli/env
 
-pvectl iac plan     # regarde ce qui VA se passer, ne fait rien
-pvectl iac apply    # le fait
+pvecli iac plan     # regarde ce qui VA se passer, ne fait rien
+pvecli iac apply    # le fait
 ```
 
 `plan` d'abord, **toujours**. C'est relire la recette avant d'allumer le four.
 
-Ce que `pvectl` ajoute autour de Terraform, et qui vaut la peine :
+Ce que `pvecli` ajoute autour de Terraform, et qui vaut la peine :
 
 ```
 pré-vol
@@ -239,7 +239,7 @@ parole**, on redemande au serveur ce qu'il contient vraiment.
 ### Vérifier avec ses propres yeux
 
 ```bash
-pvectl vm show 210        # 2 vcpu · 8.0 GiB — vu par Proxmox
+pvecli vm show 210        # 2 vcpu · 8.0 GiB — vu par Proxmox
 ssh ops@192.0.2.210 'nproc; free -h'
 #   2
 #   Mem: 7.8Gi          ← vu par la VM elle-même
@@ -252,7 +252,7 @@ ssh ops@192.0.2.210 'nproc; free -h'
 ## 7. Étape 4 — décorer (Ansible)
 
 ```bash
-pvectl iac configure --playbook site.yml --limit lab_apps \
+pvecli iac configure --playbook site.yml --limit lab_apps \
   --idempotence \
   --verify-url 'http://{{host}}/' \
   --verify-contains 'Native app deployed by Ansible'
@@ -287,18 +287,18 @@ curl http://192.0.2.210/
 
 ## 8. La version paresseuse : demander à l'agent
 
-Tout ce qui précède, tu peux aussi le **demander**. `pvectl` installe un
+Tout ce qui précède, tu peux aussi le **demander**. `pvecli` installe un
 assistant qui connaît ce lab par cœur.
 
 ### L'installer (une fois)
 
 ```bash
-make install          # pose pvectl dans ~/.local/bin ET l'agent dans ~/.claude
-pvectl ai status      # → état  à jour
+make install          # pose pvecli dans ~/.local/bin ET l'agent dans ~/.claude
+pvecli ai status      # → état  à jour
 ```
 
 L'agent est **dans le binaire**. Il n'y a rien à télécharger, et il ne peut pas
-parler d'options que ta version de `pvectl` n'aurait pas.
+parler d'options que ta version de `pvecli` n'aurait pas.
 
 ### L'utiliser
 
@@ -341,15 +341,15 @@ export TF_VAR_proxmox_api_token="${PVE_API_TOKEN_ID}=${PVE_API_TOKEN_SECRET}"
 terraform destroy -auto-approve
 ```
 
-**Pour la VM 210, c'est `terraform destroy` et pas `pvectl vm rm`.** Elle porte
-le tag `managed` : `pvectl` refuse d'y toucher exprès, et te renvoie vers son
+**Pour la VM 210, c'est `terraform destroy` et pas `pvecli vm rm`.** Elle porte
+le tag `managed` : `pvecli` refuse d'y toucher exprès, et te renvoie vers son
 propriétaire. Deux outils qui écrivent au même endroit, c'est une infrastructure
 dont plus personne ne sait qui décide.
 
-Le moule, lui, se supprime avec `pvectl` — il n'appartient à personne d'autre :
+Le moule, lui, se supprime avec `pvecli` — il n'appartient à personne d'autre :
 
 ```bash
-pvectl vm rm 9001 --purge --yes
+pvecli vm rm 9001 --purge --yes
 ```
 
 ---
@@ -372,4 +372,4 @@ pvectl vm rm 9001 --purge --yes
 > Un `200` n'est pas ta page. Un `apply` réussi n'est pas une VM conforme. Un
 > playbook qui passe n'est pas un playbook idempotent.
 > On relit toujours le résultat à la source — et c'est exactement ce que
-> `pvectl` fait autour de Terraform et d'Ansible.
+> `pvecli` fait autour de Terraform et d'Ansible.
