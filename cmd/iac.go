@@ -140,7 +140,17 @@ Endpoints : GET /api2/json/cluster/resources
 				return err
 			}
 
-			playArgs := []string{"-i", path, playbook}
+			// Where the roles publish what they made reachable. A directory the
+			// roles write into rather than output parsed from the playbook's
+			// stdout: Ansible's human output is not a data format, and one
+			// `--verbose` away from changing shape.
+			outDir, err := os.MkdirTemp("", "pvecli-outputs-*")
+			if err != nil {
+				return err
+			}
+			defer func() { _ = os.RemoveAll(outDir) }()
+
+			playArgs := []string{"-i", path, "-e", iac.OutputDirVar + "=" + outDir, playbook}
 			if limit != "" {
 				playArgs = append(playArgs, "--limit", limit)
 			}
@@ -176,13 +186,17 @@ Endpoints : GET /api2/json/cluster/resources
 					"\nidempotence VÉRIFIÉE : second passage à changed=0 sur %d hôte(s).\n", len(second))
 			}
 
-			if verifyURL != "" {
-				return verifyHosts(cmd, inv, verifyURL, verifyText)
-			}
-			if verifyText != "" {
+			if verifyText != "" && verifyURL == "" {
 				return &exitError{code: pve.ExitUsage, msg: "--verify-contains n'a de sens qu'avec --verify-url"}
 			}
-			return nil
+			if verifyURL != "" {
+				// Verification first: a connection block printed after a failed
+				// check would describe access to something that does not answer.
+				if err := verifyHosts(cmd, inv, verifyURL, verifyText); err != nil {
+					return err
+				}
+			}
+			return reportConnections(cmd, inv, outDir)
 		},
 	}
 
@@ -196,6 +210,9 @@ Endpoints : GET /api2/json/cluster/resources
 	f.StringVar(&verifyText, "verify-contains", "", "texte exigé dans la réponse de --verify-url — un 200 ne dit pas QUI répond")
 	f.StringVar(&user, "user", "", "force ansible_user dans l'inventaire généré")
 	f.StringVar(&tag, "tag", "", "ne retient que les VM portant ce tag")
+	// The connection block is data: it has to survive `-o json | jq` like every
+	// other result this CLI produces.
+	addRenderFlags(c)
 	return c
 }
 
