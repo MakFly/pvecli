@@ -1,7 +1,12 @@
 ---
-- name: Installer PostgreSQL et le pilote Python dont Ansible a besoin
+# « acl » n'est pas décoratif. Les tâches suivantes passent en become_user:
+# postgres, et pour cela Ansible doit donner à cet utilisateur l'accès à ses
+# fichiers temporaires. Sans setfacl il retombe sur une syntaxe chmod qui
+# n'existe pas sous Linux — « chmod: invalid mode: 'A+user:postgres:rx:allow' »,
+# un message qui ne parle ni de PostgreSQL ni d'ACL.
+- name: Installer PostgreSQL, le pilote Python et acl
   ansible.builtin.apt:
-    name: [postgresql, python3-psycopg2]
+    name: [postgresql, python3-psycopg2, acl]
     state: present
     update_cache: true
 
