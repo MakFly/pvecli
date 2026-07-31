@@ -23,6 +23,13 @@ const (
 	EnvInsecure    = "PVE_INSECURE"
 )
 
+// Cloudflare's own conventional variable names, so a shell already set up for
+// `wrangler` or `flarectl` needs nothing extra.
+const (
+	EnvCFToken   = "CF_API_TOKEN"
+	EnvAccountID = "CF_ACCOUNT_ID"
+)
+
 // File is the on-disk document.
 type File struct {
 	CurrentContext string              `yaml:"current_context"`
@@ -37,6 +44,7 @@ type Context struct {
 	Insecure bool   `yaml:"insecure,omitempty"`
 	TLS      TLS    `yaml:"tls,omitempty"`
 	IaC      IaC    `yaml:"iac,omitempty"`
+	CF       CF     `yaml:"cf,omitempty"`
 
 	// DetectedVersion is written by `pvecli version`, not by a human. It is
 	// what later stories consult to decide whether an endpoint exists in this
@@ -72,6 +80,15 @@ type IaC struct {
 	ManagedTag string `yaml:"managed_tag,omitempty"`
 }
 
+// CF locates the Cloudflare account the tunnels are created in.
+//
+// Only the account id lives here. The API token is a secret, and follows the
+// same rule as the PVE token (decision D1): environment only, fed from the
+// keychain, never stored in a file this tool writes.
+type CF struct {
+	AccountID string `yaml:"account_id,omitempty"`
+}
+
 // WritableKeys is the exhaustive set of keys `config set` accepts. An unknown
 // key is a typo, not a new setting — the CLI says so instead of silently
 // storing something nothing will ever read.
@@ -85,6 +102,7 @@ var WritableKeys = []string{
 	"iac.terraform_dir",
 	"iac.ansible_dir",
 	"iac.managed_tag",
+	"cf.account_id",
 }
 
 // SetKey writes one dotted key into a context.
@@ -125,6 +143,12 @@ func SetKey(c *Context, key, value string) error {
 		c.IaC.AnsibleDir = p
 	case "iac.managed_tag":
 		c.IaC.ManagedTag = value
+
+	// The account id, and only the account id. The Cloudflare API token is a
+	// secret and follows the same rule as the PVE one: environment only, fed
+	// from the keychain, never written to a file this tool manages.
+	case "cf.account_id":
+		c.CF.AccountID = value
 
 	// Settable but not advertised in WritableKeys: `pvecli version` writes it,
 	// a human has no reason to.

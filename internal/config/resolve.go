@@ -21,6 +21,7 @@ type Effective struct {
 	Insecure    bool
 	TLS         TLS
 	IaC         IaC
+	CF          CF
 
 	// Sources maps a field name to the layer that won it: "flag --endpoint",
 	// "env PVE_API_URL", "fichier" or "défaut". A layered configuration that
@@ -100,6 +101,7 @@ func Resolve(fl *pflag.FlagSet, f *File) (*Effective, error) {
 	e.IaC.TerraformDir = set("iac.terraform_dir", pick(fl, "terraform-dir", "", c.IaC.TerraformDir, ""))
 	e.IaC.AnsibleDir = set("iac.ansible_dir", pick(fl, "ansible-dir", "", c.IaC.AnsibleDir, ""))
 	e.IaC.ManagedTag = set("iac.managed_tag", pick(fl, "", "", c.IaC.ManagedTag, DefaultManagedTag))
+	e.CF.AccountID = set("cf.account_id", pick(fl, "", EnvAccountID, c.CF.AccountID, ""))
 
 	if fl != nil && fl.Changed("insecure") {
 		b, _ := fl.GetBool("insecure")

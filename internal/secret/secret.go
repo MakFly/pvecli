@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 // Ref names one entry. Service groups a host's secrets, Account is the key
@@ -60,6 +61,24 @@ func Store(ref Ref, value string) error {
 		return fmt.Errorf("écriture dans le trousseau (%s) : %w — %s", ref, err, out)
 	}
 	return nil
+}
+
+// Read fetches a secret back.
+//
+// Used to hand a connector token to the Ansible role that installs cloudflared,
+// which is the one place this tool has to move a credential rather than just
+// file it. The value goes to the playbook through an extra-vars FILE, never
+// through the command line.
+func Read(ref Ref) (string, error) {
+	if !Available() {
+		return "", fmt.Errorf("aucun trousseau accessible sur %s", runtime.GOOS)
+	}
+	out, err := exec.Command("security", "find-generic-password",
+		"-s", ref.Service, "-a", ref.Account, "-w").Output()
+	if err != nil {
+		return "", fmt.Errorf("%s introuvable dans le trousseau : %w", ref, err)
+	}
+	return strings.TrimRight(string(out), "\n"), nil
 }
 
 // lookPath is a variable so tests can pretend the tool is missing.

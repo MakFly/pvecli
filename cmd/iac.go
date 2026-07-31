@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"github.com/MakFly/pvecli/internal/iac"
 	"github.com/MakFly/pvecli/internal/output"
 	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/MakFly/pvecli/internal/secret"
 	"github.com/spf13/cobra"
 )
 
@@ -55,6 +57,8 @@ func newIaCConfigureCmd() *cobra.Command {
 		verifyText  string
 		user        string
 		tag         string
+		cfTunnel    string
+		cfHostname  string
 	)
 
 	c := &cobra.Command{
@@ -150,7 +154,18 @@ Endpoints : GET /api2/json/cluster/resources
 			}
 			defer func() { _ = os.RemoveAll(outDir) }()
 
-			playArgs := []string{"-i", path, "-e", iac.OutputDirVar + "=" + outDir, playbook}
+			playArgs := []string{"-i", path, "-e", iac.OutputDirVar + "=" + outDir}
+			if cfTunnel != "" {
+				extras, done, err := writeCloudflaredVars(cfTunnel, cfHostname)
+				if err != nil {
+					return err
+				}
+				defer done()
+				// « -e @fichier » et non « -e clé=valeur » : un jeton passé en
+				// argument est lisible par « ps » pendant toute la durée du run.
+				playArgs = append(playArgs, "-e", "@"+extras)
+			}
+			playArgs = append(playArgs, playbook)
 			if limit != "" {
 				playArgs = append(playArgs, "--limit", limit)
 			}
@@ -210,10 +225,51 @@ Endpoints : GET /api2/json/cluster/resources
 	f.StringVar(&verifyText, "verify-contains", "", "texte exigé dans la réponse de --verify-url — un 200 ne dit pas QUI répond")
 	f.StringVar(&user, "user", "", "force ansible_user dans l'inventaire généré")
 	f.StringVar(&tag, "tag", "", "ne retient que les VM portant ce tag")
+	f.StringVar(&cfTunnel, "cf-tunnel", "", "tunnel Cloudflare dont le jeton alimente le rôle cloudflared")
+	f.StringVar(&cfHostname, "cf-hostname", "", "FQDN public routé vers ces hôtes, pour la vérification du rôle")
 	// The connection block is data: it has to survive `-o json | jq` like every
 	// other result this CLI produces.
 	addRenderFlags(c)
 	return c
+}
+
+// writeCloudflaredVars hands the connector token to Ansible through a file.
+//
+// The token is what authorises a machine to join the Cloudflare account. On the
+// command line it would be readable by every process on the host for the whole
+// length of the run; in a 0600 file in a private temp directory it is not, and
+// the file is removed whatever happens next.
+func writeCloudflaredVars(tunnel, hostname string) (path string, cleanup func(), err error) {
+	token, err := secret.Read(cfTokenRef(tunnel))
+	if err != nil {
+		return "", func() {}, fmt.Errorf(`%w
+
+Le jeton du tunnel « %s » n'est pas dans le trousseau. Crée le tunnel :
+  pvecli cf tunnel create %s`, err, tunnel, tunnel)
+	}
+
+	dir, err := os.MkdirTemp("", "pvecli-cf-*")
+	if err != nil {
+		return "", func() {}, err
+	}
+	cleanup = func() { _ = os.RemoveAll(dir) }
+
+	doc := map[string]string{
+		"pvecli_cf_token":       token,
+		"pvecli_cf_tunnel_name": tunnel,
+		"pvecli_cf_hostname":    hostname,
+	}
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	path = filepath.Join(dir, "cloudflared.json")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	return path, cleanup, nil
 }
 
 // writeTempInventory renders the inventory to a file ansible can read.
