@@ -1,4 +1,4 @@
-# CI de pvectl — PVX-054.
+# CI de pvecli — PVX-054.
 #
 # Elle n'appelle QUE des cibles du Makefile. C'est délibéré : ce qui casse en CI
 # doit se reproduire à l'identique en local avec la même commande, sinon on

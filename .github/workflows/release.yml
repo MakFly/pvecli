@@ -1,4 +1,4 @@
-# Publication de pvectl — la moitié CD de la chaîne.
+# Publication de pvecli — la moitié CD de la chaîne.
 #
 # DEUX ENTRÉES, une seule sortie.
 #
@@ -152,7 +152,7 @@ jobs:
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$VERSION" -m "pvectl $VERSION"
+          git tag -a "$VERSION" -m "pvecli $VERSION"
           git push origin "$VERSION"
 
   # ── 3. Construire, une fois, pour les deux plateformes ─────────────────────
@@ -182,13 +182,13 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
-          file "dist/pvectl_${VERSION}_linux_amd64"  | grep -q "ELF 64-bit.*x86-64" \
+          file "dist/pvecli_${VERSION}_linux_amd64"  | grep -q "ELF 64-bit.*x86-64" \
             || { echo "::error::le binaire Linux n'est pas un ELF x86-64"; exit 1; }
           # Statique : c'est ce qui lui permet d'être copié tel quel sur un nœud
           # Proxmox par « make install-node », sans se soucier de sa libc.
-          file "dist/pvectl_${VERSION}_linux_amd64"  | grep -q "statically linked" \
+          file "dist/pvecli_${VERSION}_linux_amd64"  | grep -q "statically linked" \
             || { echo "::error::le binaire Linux n'est pas statique"; exit 1; }
-          file "dist/pvectl_${VERSION}_darwin_arm64" | grep -q "Mach-O 64-bit.*arm64" \
+          file "dist/pvecli_${VERSION}_darwin_arm64" | grep -q "Mach-O 64-bit.*arm64" \
             || { echo "::error::le binaire macOS n'est pas un Mach-O arm64"; exit 1; }
 
       - name: Les sommes de contrôle sont vraies
@@ -222,17 +222,17 @@ jobs:
           name: dist
           path: dist
 
-      - name: pvectl --version dit la vérité
+      - name: pvecli --version dit la vérité
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
-          binary="dist/pvectl_${VERSION}_${{ matrix.suffix }}"
+          binary="dist/pvecli_${VERSION}_${{ matrix.suffix }}"
           chmod +x "$binary"
           got="$("$binary" --version)"
           echo "$got"
           case "$got" in
-            "pvectl $VERSION (commit "*) ;;
+            "pvecli $VERSION (commit "*) ;;
             *) echo "::error::le binaire répond « $got » — les ldflags n'ont pas pris"; exit 1 ;;
           esac
 
@@ -243,7 +243,7 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
-          binary="dist/pvectl_${VERSION}_${{ matrix.suffix }}"
+          binary="dist/pvecli_${VERSION}_${{ matrix.suffix }}"
           "$binary" ai print | head -1 | grep -qx -- "---" \
             || { echo "::error::l'agent embarqué est absent ou tronqué"; exit 1; }
           "$binary" --help >/dev/null
@@ -271,10 +271,10 @@ jobs:
         # Lie chaque binaire au commit et au workflow qui l'ont produit. Une
         # somme SHA-256 prouve qu'un fichier n'a pas bougé ; elle ne dit rien de
         # d'où il vient. Vérifiable par :
-        #   gh attestation verify pvectl --repo ${{ github.repository }}
+        #   gh attestation verify pvecli --repo ${{ github.repository }}
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: dist/pvectl_*
+          subject-path: dist/pvecli_*
 
       - name: Release GitHub
         env:
@@ -295,21 +295,21 @@ jobs:
             echo "Le script détecte la plateforme, **vérifie la somme SHA-256**"
             echo "avant d'installer, pose le binaire dans \`~/.local/bin\` et"
             echo "installe l'agent Claude Code. Version précise :"
-            echo "\`PVECTL_VERSION=${VERSION} sh\`."
+            echo "\`PVECLI_VERSION=${VERSION} sh\`."
             echo
             echo "<details><summary>À la main</summary>"
             echo
             echo '```sh'
-            echo "curl -fsSLO https://github.com/${REPO}/releases/download/${VERSION}/pvectl_${VERSION}_linux_amd64"
+            echo "curl -fsSLO https://github.com/${REPO}/releases/download/${VERSION}/pvecli_${VERSION}_linux_amd64"
             echo "curl -fsSLO https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS"
             echo "sha256sum -c SHA256SUMS --ignore-missing"
-            echo "gh attestation verify pvectl_${VERSION}_linux_amd64 --repo ${REPO}"
-            echo "chmod +x pvectl_${VERSION}_linux_amd64"
+            echo "gh attestation verify pvecli_${VERSION}_linux_amd64 --repo ${REPO}"
+            echo "chmod +x pvecli_${VERSION}_linux_amd64"
             echo '```'
             echo
             echo "</details>"
             echo
-            echo "Puis : \`pvectl config init\`, \`pvectl config trust\`, \`pvectl doctor\`."
+            echo "Puis : \`pvecli config init\`, \`pvecli config trust\`, \`pvecli doctor\`."
             echo
             echo "## Vérifié avant publication"
             echo
@@ -323,7 +323,7 @@ jobs:
           if gh release view "$VERSION" >/dev/null 2>&1; then
             gh release upload "$VERSION" dist/* --clobber
           else
-            args=(--title "pvectl $VERSION" --notes-file "$notes" --generate-notes --verify-tag)
+            args=(--title "pvecli $VERSION" --notes-file "$notes" --generate-notes --verify-tag)
             [ -n "$PREVIOUS" ] && args+=(--notes-start-tag "$PREVIOUS")
             gh release create "$VERSION" dist/* "${args[@]}"
           fi

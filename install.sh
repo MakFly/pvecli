@@ -1,12 +1,12 @@
 #!/bin/sh
-# Installe pvectl depuis les releases GitHub.
+# Installe pvecli depuis les releases GitHub.
 #
-#   curl -fsSL https://raw.githubusercontent.com/MakFly/pvectl/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/MakFly/pvecli/main/install.sh | sh
 #
 # Variables :
-#   PVECTL_VERSION   version précise (défaut : la dernière release)
+#   PVECLI_VERSION   version précise (défaut : la dernière release)
 #   PREFIX           racine d'installation (défaut : ~/.local → ~/.local/bin)
-#   PVECTL_NO_AGENT  =1 pour ne pas installer l'agent Claude Code
+#   PVECLI_NO_AGENT  =1 pour ne pas installer l'agent Claude Code
 #
 # CE SCRIPT VÉRIFIE LA SOMME SHA-256 AVANT D'INSTALLER, ET S'ARRÊTE SI ELLE NE
 # CORRESPOND PAS. Un installeur qu'on canalise dans un shell exécute du code
@@ -16,8 +16,8 @@
 # coûte peu et ne se rattrape pas après coup.
 set -eu
 
-REPO="MakFly/pvectl"
-BINARY="pvectl"
+REPO="MakFly/pvecli"
+BINARY="pvecli"
 PREFIX="${PREFIX:-$HOME/.local}"
 BINDIR="$PREFIX/bin"
 
@@ -75,7 +75,7 @@ esac
 
 # ── Version ───────────────────────────────────────────────────────────────────
 
-version="${PVECTL_VERSION:-}"
+version="${PVECLI_VERSION:-}"
 if [ -z "$version" ]; then
 	say "→ recherche de la dernière release de $REPO"
 	# L'API renvoie du JSON ; on n'extrait qu'un champ, sans dépendre de jq.
@@ -90,7 +90,7 @@ fi
 asset="${BINARY}_${version}_${target}"
 base="https://github.com/$REPO/releases/download/$version"
 
-say "→ pvectl $version ($target)"
+say "→ pvecli $version ($target)"
 
 # ── Téléchargement et vérification ────────────────────────────────────────────
 
@@ -138,14 +138,14 @@ say "  ✓ $got"
 
 # ── Agent Claude Code ─────────────────────────────────────────────────────────
 
-if [ "${PVECTL_NO_AGENT:-}" != "1" ]; then
+if [ "${PVECLI_NO_AGENT:-}" != "1" ]; then
 	# On rend le chemin que la commande a réellement écrit, pas celui qu'on
 	# suppose : CLAUDE_CONFIG_DIR peut déplacer la cible.
 	if agent_out="$("$BINDIR/$BINARY" ai install 2>/dev/null)"; then
 		say "  ✓ $(printf '%s' "$agent_out" | head -1)"
 	else
 		# Un agent déjà personnalisé n'est pas un échec d'installation.
-		say "  · agent non installé (déjà présent et modifié ?) — « pvectl ai status »"
+		say "  · agent non installé (déjà présent et modifié ?) — « pvecli ai status »"
 	fi
 fi
 
@@ -165,10 +165,10 @@ cat <<EOF
 
 Installé. Ensuite :
 
-  pvectl config init --endpoint https://pve.example:8006 \\
+  pvecli config init --endpoint https://pve.example:8006 \\
       --token-id 'automation@pve!pvectl' --node pve
-  pvectl config trust     # épingle le certificat — plus fort que --insecure
-  pvectl doctor           # réseau → TLS → auth → nœud → privilèges
+  pvecli config trust     # épingle le certificat — plus fort que --insecure
+  pvecli doctor           # réseau → TLS → auth → nœud → privilèges
 
 L'agent s'invoque depuis Claude Code : « crée-moi une VM 4 vCPU 16 Go ».
 EOF
