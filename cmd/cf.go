@@ -74,18 +74,35 @@ func newCFStatusCmd() *cobra.Command {
 Tunnel:Edit » ou « DNS:Edit » échoue plus tard, sur une création à moitié faite.`,
 		Args: usage(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := newCFClient(cmd)
+			ctx := cmd.Context()
+			errW := cmd.ErrOrStderr()
+
+			eff, err := resolveConfig(cmd)
 			if err != nil {
 				return err
 			}
-			ctx := cmd.Context()
+			token := os.Getenv(config.EnvCFToken)
+
+			// Before the account is configured, status is the command that says
+			// WHICH account to configure. Refusing to run until it is already
+			// known would be a circle.
+			discovery := eff.CF.AccountID == ""
+			var client *cf.Client
+			if discovery {
+				client, err = cf.NewDiscovery(token)
+			} else {
+				client, err = cf.New(cf.Options{Token: token, AccountID: eff.CF.AccountID})
+			}
+			if err != nil {
+				return err
+			}
+
 			if err := client.Verify(ctx); err != nil {
 				return err
 			}
-			errW := cmd.ErrOrStderr()
-			_, _ = fmt.Fprintf(errW, "✓ jeton valide — compte %s\n", client.AccountID())
+			_, _ = fmt.Fprintln(errW, "✓ jeton valide")
 
-			tunnels, err := client.Tunnels(ctx)
+			accounts, err := client.Accounts(ctx)
 			if err != nil {
 				return err
 			}
@@ -93,21 +110,48 @@ Tunnel:Edit » ou « DNS:Edit » échoue plus tard, sur une création à moitié
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(errW, "✓ %d tunnel(s), %d zone(s) visibles\n", len(tunnels), len(zones))
 
 			rows := output.Rows{Headers: []string{"TYPE", "NOM", "IDENTIFIANT"}}
-			for _, t := range tunnels {
-				rows.Cells = append(rows.Cells, []string{"tunnel", t.Name, t.ID})
+			for _, a := range accounts {
+				rows.Cells = append(rows.Cells, []string{"compte", a.Name, a.ID})
 			}
 			for _, z := range zones {
 				rows.Cells = append(rows.Cells, []string{"zone", z.Name, z.ID})
 			}
+
+			var tunnels []cf.Tunnel
+			if discovery {
+				_, _ = fmt.Fprintf(errW, "✓ %d compte(s), %d zone(s) visibles\n", len(accounts), len(zones))
+				switch len(accounts) {
+				case 1:
+					_, _ = fmt.Fprintf(errW, "\nLe compte n'est pas configuré. Un seul est visible :\n"+
+						"  pvecli config set cf.account_id %s\n", accounts[0].ID)
+				case 0:
+					_, _ = fmt.Fprintln(errW, "\n⚠ ce jeton ne voit AUCUN compte : il lui manque une permission\n"+
+						"  de niveau compte (Cloudflare Tunnel:Edit).")
+				default:
+					_, _ = fmt.Fprintln(errW, "\nLe compte n'est pas configuré. Choisis-en un ci-dessous :\n"+
+						"  pvecli config set cf.account_id <identifiant>")
+				}
+			} else {
+				if tunnels, err = client.Tunnels(ctx); err != nil {
+					return err
+				}
+				_, _ = fmt.Fprintf(errW, "✓ compte %s — %d tunnel(s), %d zone(s) visibles\n",
+					client.AccountID(), len(tunnels), len(zones))
+				for _, t := range tunnels {
+					rows.Cells = append(rows.Cells, []string{"tunnel", t.Name, t.ID})
+				}
+			}
+
 			opts, err := renderOptions(cmd)
 			if err != nil {
 				return err
 			}
-			return output.Render(cmd.OutOrStdout(), opts,
-				map[string]any{"account": client.AccountID(), "tunnels": tunnels, "zones": zones}, rows)
+			return output.Render(cmd.OutOrStdout(), opts, map[string]any{
+				"account": client.AccountID(), "accounts": accounts,
+				"tunnels": tunnels, "zones": zones,
+			}, rows)
 		},
 	}
 	addRenderFlags(c)

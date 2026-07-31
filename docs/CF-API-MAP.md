@@ -11,6 +11,7 @@ Base : `https://api.cloudflare.com/client/v4`
 | Endpoint | Méthode | Commande | Ce qu'il faut savoir |
 | --- | --- | --- | --- |
 | `/user/tokens/verify` | GET | `pvecli cf status` | Vérifie le jeton **avant** toute écriture. Un jeton sans `Cloudflare Tunnel:Edit` échoue sinon au milieu d'une création. |
+| `/accounts` | GET | `pvecli cf status` | Sert à découvrir `cf.account_id` avant qu'il soit configuré — sinon l'opérateur devrait déjà connaître la valeur que la commande est censée lui donner. Un jeton qui ne voit aucun compte n'a pas de permission de niveau compte. |
 | `/accounts/{account}/cfd_tunnel` | GET | `cf tunnel ls`, résolution par nom | Renvoie aussi les tunnels **supprimés** (`deleted_at` non nul) — le client les filtre. |
 | `/accounts/{account}/cfd_tunnel` | POST | `cf tunnel create` | `config_src: "cloudflare"` = tunnel *remotely-managed* : la table d'ingress vit dans l'API, pas dans un `config.yml` de l'invité. |
 | `/accounts/{account}/cfd_tunnel/{tunnel}` | DELETE | `cf tunnel rm` | Refusé tant qu'un connecteur est rattaché. Ce refus est une information. |

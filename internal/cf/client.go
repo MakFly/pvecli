@@ -77,8 +77,38 @@ et sur la zone : DNS:Edit`, EnvToken)
 	}, nil
 }
 
+// NewDiscovery builds a client that can only answer the questions which do not
+// need an account: verify the token, and list what it can see.
+//
+// It exists so `cf status` still works before cf.account_id is set — that is
+// exactly the moment an operator needs to be told which id to configure, and
+// refusing to run until they already know it would be a circle.
+func NewDiscovery(token string) (*Client, error) {
+	c, err := New(Options{Token: token, AccountID: "-"})
+	if err != nil {
+		return nil, err
+	}
+	c.account = ""
+	return c, nil
+}
+
 // AccountID is the account this client acts on.
 func (c *Client) AccountID() string { return c.account }
+
+// Account is one account the token can act on.
+type Account struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// Accounts lists the accounts visible to this token.
+func (c *Client) Accounts(ctx context.Context) ([]Account, error) {
+	var accounts []Account
+	if err := c.do(ctx, epAccounts, nil, url.Values{"per_page": {"50"}}, nil, &accounts); err != nil {
+		return nil, err
+	}
+	return accounts, nil
+}
 
 // APIError is a refusal Cloudflare explained. Its codes are worth keeping: 1000
 // is "invalid credentials", 7003 is "route not found", and telling them apart

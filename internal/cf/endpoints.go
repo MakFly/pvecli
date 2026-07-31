@@ -15,6 +15,7 @@ type endpoint struct {
 
 var (
 	epTokenVerify = endpoint{"GET", "/user/tokens/verify"}
+	epAccounts    = endpoint{"GET", "/accounts"}
 
 	epTunnels      = endpoint{"GET", "/accounts/{account}/cfd_tunnel"}
 	epTunnelCreate = endpoint{"POST", "/accounts/{account}/cfd_tunnel"}
@@ -33,7 +34,7 @@ var (
 // AllEndpoints is what the coverage test walks. An endpoint absent from this
 // list is an endpoint no test can prove is documented.
 var AllEndpoints = []endpoint{
-	epTokenVerify,
+	epTokenVerify, epAccounts,
 	epTunnels, epTunnelCreate, epTunnelDelete, epTunnelToken,
 	epTunnelConfig, epTunnelSetCfg,
 	epZones, epDNSRecords, epDNSCreate, epDNSUpdate, epDNSRecordDrop,
