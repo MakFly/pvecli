@@ -1,0 +1,9 @@
+---
+pvecli_pg_database: app
+pvecli_pg_user: app
+# Là où le mot de passe généré est conservé DANS l'invité, pour qu'un second
+# passage retrouve le même et ne rapporte pas un changement fantôme.
+pvecli_pg_secret_file: /etc/pvecli/postgresql.password
+# Par défaut PostgreSQL n'écoute que sur la boucle locale. L'ouvrir au LAN est
+# une décision, pas un défaut : les services de la même VM passent par le socket.
+pvecli_pg_listen_lan: false

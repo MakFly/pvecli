@@ -1,0 +1,93 @@
+---
+- name: Installer PostgreSQL et le pilote Python dont Ansible a besoin
+  ansible.builtin.apt:
+    name: [postgresql, python3-psycopg2]
+    state: present
+    update_cache: true
+
+- name: Démarrer PostgreSQL au boot
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: true
+
+- name: Créer le dossier des secrets locaux
+  ansible.builtin.file:
+    path: "{{ pvecli_pg_secret_file | dirname }}"
+    state: directory
+    mode: "0700"
+
+# Le mot de passe est tiré UNE fois et conservé dans l'invité. En le régénérant
+# à chaque passage, le rôle changerait le mot de passe du rôle SQL à chaque tour
+# : `--idempotence` échouerait, et l'application perdrait sa base entre deux
+# exécutions du même playbook.
+- name: Chercher un mot de passe déjà généré
+  ansible.builtin.stat:
+    path: "{{ pvecli_pg_secret_file }}"
+  register: pvecli_pg_secret_stat
+
+- name: Relire le mot de passe déjà en place
+  ansible.builtin.slurp:
+    src: "{{ pvecli_pg_secret_file }}"
+  register: pvecli_pg_secret_slurp
+  when: pvecli_pg_secret_stat.stat.exists
+  no_log: true
+
+- name: Reprendre le mot de passe existant
+  ansible.builtin.set_fact:
+    pvecli_pg_password: "{{ pvecli_pg_secret_slurp.content | b64decode | trim }}"
+  when: pvecli_pg_secret_stat.stat.exists
+  no_log: true
+
+- name: Tirer un mot de passe au premier passage
+  ansible.builtin.set_fact:
+    pvecli_pg_password: >-
+      {{ lookup('ansible.builtin.password', '/dev/null',
+                length=32, chars=['ascii_letters', 'digits']) }}
+  when: not pvecli_pg_secret_stat.stat.exists
+  no_log: true
+
+- name: Conserver le mot de passe dans l'invité
+  ansible.builtin.copy:
+    content: "{{ pvecli_pg_password }}\n"
+    dest: "{{ pvecli_pg_secret_file }}"
+    mode: "0600"
+  no_log: true
+
+- name: Créer le rôle applicatif
+  community.postgresql.postgresql_user:
+    name: "{{ pvecli_pg_user }}"
+    password: "{{ pvecli_pg_password }}"
+    state: present
+  become_user: postgres
+  no_log: true
+
+- name: Créer la base applicative
+  community.postgresql.postgresql_db:
+    name: "{{ pvecli_pg_database }}"
+    owner: "{{ pvecli_pg_user }}"
+    state: present
+  become_user: postgres
+
+# Un service démarré ne prouve pas qu'il accepte une connexion. On se connecte.
+- name: Vérifier que la base répond au rôle applicatif
+  community.postgresql.postgresql_ping:
+    db: "{{ pvecli_pg_database }}"
+    login_user: "{{ pvecli_pg_user }}"
+    login_password: "{{ pvecli_pg_password }}"
+    login_host: 127.0.0.1
+  register: pvecli_pg_ping
+  failed_when: not pvecli_pg_ping.is_available
+  changed_when: false
+  no_log: true
+
+- name: Publier les sorties
+  ansible.builtin.include_role:
+    name: pvecli_publish
+  vars:
+    pvecli_publish_service: postgresql
+    pvecli_publish_values:
+      postgresql.host: "{{ ansible_host }}:5432"
+      postgresql.database: "{{ pvecli_pg_database }}"
+      postgresql.user: "{{ pvecli_pg_user }}"
+      postgresql.password: "{{ pvecli_pg_password }}"

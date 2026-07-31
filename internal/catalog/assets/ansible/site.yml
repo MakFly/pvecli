@@ -1,0 +1,31 @@
+---
+# Posé par « pvecli iac scaffold ».
+#
+# Un play par service, chacun visant le groupe que le tag PVE a créé. Un groupe
+# absent de l'inventaire ne fait pas échouer le play : Ansible n'y trouve aucun
+# hôte et passe. C'est ce qui rend la sélection à la carte possible sans générer
+# de playbook — l'inventaire décide, pas le fichier.
+#
+# L'ordre des plays porte les dépendances du catalogue. Rien ne les vérifie ici :
+# c'est `catalog.Resolve` qui garantit qu'un service demandé entraîne les siens.
+
+- name: Docker CE
+  hosts: svc_docker
+  become: true
+  gather_facts: true
+  roles:
+    - docker
+
+- name: PostgreSQL
+  hosts: svc_postgresql
+  become: true
+  gather_facts: true
+  roles:
+    - postgresql
+
+- name: Cloudflare Tunnel
+  hosts: svc_cloudflared
+  become: true
+  gather_facts: true
+  roles:
+    - cloudflared

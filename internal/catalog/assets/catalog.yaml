@@ -1,0 +1,50 @@
+# Catalogue des services installables dans une VM déclarée par pvecli.
+#
+# Un service = un rôle Ansible + un tag PVE. Le tag est la jointure : Terraform
+# le pose sur la VM, `pvecli iac inventory` le transforme en groupe Ansible
+# (internal/iac/inventory.go, GroupName), et site.yml joue le rôle sur ce
+# groupe. Aucune des trois moitiés ne connaît les deux autres.
+#
+# `outputs` décrit ce que le service rend joignable. Ce n'est pas de la
+# décoration : c'est ce qui remplit le bloc de connexion en fin de commande.
+# Une valeur `secret: true` n'est jamais affichée — seule la référence keychain
+# l'est.
+version: 1
+
+services:
+  - id: docker
+    summary: Moteur de conteneurs Docker CE, avec le plugin compose
+    role: docker
+    outputs:
+      - key: docker
+        # « docker version » côté invité, relu après coup.
+        value: "{{ pvecli_docker_version }}"
+      - key: docker.socket
+        value: "unix:///var/run/docker.sock"
+
+  - id: postgresql
+    summary: PostgreSQL 17, avec une base et un rôle applicatifs créés
+    role: postgresql
+    ports: [5432]
+    outputs:
+      - key: postgresql.host
+        value: "{{ pvecli_host_ip }}:5432"
+      - key: postgresql.database
+        value: "{{ pvecli_pg_database }}"
+      - key: postgresql.user
+        value: "{{ pvecli_pg_user }}"
+      - key: postgresql.password
+        value: "{{ pvecli_pg_password }}"
+        secret: true
+
+  - id: cloudflared
+    summary: Connecteur Cloudflare Tunnel — sortant, aucun port ouvert sur la box
+    role: cloudflared
+    outputs:
+      - key: cloudflared.tunnel
+        value: "{{ pvecli_cf_tunnel_name }}"
+      - key: cloudflared.url
+        value: "{{ pvecli_cf_hostname }}"
+      - key: cloudflared.token
+        value: "{{ pvecli_cf_token }}"
+        secret: true

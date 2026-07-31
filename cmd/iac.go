@@ -40,6 +40,7 @@ Les répertoires du dépôt d'infrastructure se déclarent une fois :
 	}
 	c.AddCommand(newIaCInventoryCmd(), newIaCStateCmd(), newIaCDriftCmd(), newIaCAdoptCmd())
 	c.AddCommand(newIaCPlanCmd(), newIaCApplyCmd(), newIaCConfigureCmd())
+	c.AddCommand(newIaCScaffoldCmd())
 	return c
 }
 

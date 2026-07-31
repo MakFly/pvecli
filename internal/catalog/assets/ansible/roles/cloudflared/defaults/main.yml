@@ -1,0 +1,9 @@
+---
+# Le jeton de connecteur, créé par « pvecli cf tunnel create ». Il n'a pas de
+# valeur par défaut exprès : sans lui, cloudflared s'installe et ne se connecte
+# à rien, ce qui est le genre de demi-succès qu'on découvre trois jours plus tard.
+pvecli_cf_token: ""
+pvecli_cf_tunnel_name: ""
+# Le FQDN public routé vers cette VM, pour la vérification de fin de rôle.
+pvecli_cf_hostname: ""
+pvecli_cf_deb_url: https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb

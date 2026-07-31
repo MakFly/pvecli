@@ -1,0 +1,17 @@
+---
+# Remonte les identifiants de connexion d'un service jusqu'au contrôleur, où
+# pvecli les lit pour composer le bloc de fin de commande.
+#
+# `changed_when: false` n'est pas cosmétique : `pvecli iac configure
+# --idempotence` rejoue le playbook et exige changed=0 au second passage. Une
+# tâche qui écrit un fichier à chaque tour ferait échouer la vérification en
+# rapportant un changement qui n'en est pas un.
+- name: Publier les sorties de connexion vers le contrôleur
+  ansible.builtin.copy:
+    content: "{{ pvecli_publish_values | to_nice_json }}"
+    dest: "{{ pvecli_out_dir }}/{{ inventory_hostname }}.{{ pvecli_publish_service }}.json"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  when: pvecli_out_dir | default('') | length > 0

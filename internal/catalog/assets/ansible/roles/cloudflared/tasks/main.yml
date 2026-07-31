@@ -1,0 +1,79 @@
+---
+# cloudflared ouvre une connexion SORTANTE vers le réseau Cloudflare. Rien
+# n'écoute, aucun port n'est publié, la box reste fermée. C'est pour ça que ce
+# rôle n'ouvre aucun pare-feu et n'a rien à demander au routeur.
+
+- name: Exiger un jeton de connecteur
+  ansible.builtin.assert:
+    that: pvecli_cf_token | length > 0
+    fail_msg: >-
+      Aucun jeton de tunnel. Crée-le d'abord avec « pvecli cf tunnel create <nom> »,
+      puis rejoue — un cloudflared installé sans jeton démarre et ne sert rien.
+
+- name: Installer les prérequis
+  ansible.builtin.apt:
+    name: [ca-certificates]
+    state: present
+    update_cache: true
+
+- name: Créer le dossier de téléchargement
+  ansible.builtin.file:
+    path: /opt/pvecli
+    state: directory
+    mode: "0755"
+
+# Le paquet officiel plutôt que le dépôt apt de Cloudflare : ce dernier est
+# indexé par nom de code de distribution, et une Debian trop récente n'y figure
+# pas encore. Le .deb, lui, existe pour toutes.
+- name: Télécharger le paquet cloudflared
+  ansible.builtin.get_url:
+    url: "{{ pvecli_cf_deb_url }}"
+    dest: /opt/pvecli/cloudflared.deb
+    mode: "0644"
+    force: false
+
+- name: Installer cloudflared
+  ansible.builtin.apt:
+    deb: /opt/pvecli/cloudflared.deb
+    state: present
+
+- name: Vérifier si le service est déjà installé
+  ansible.builtin.stat:
+    path: /etc/systemd/system/cloudflared.service
+  register: pvecli_cf_unit
+
+# « cloudflared service install » échoue s'il est déjà posé. Le garde-fou n'est
+# pas une commodité : sans lui, le second passage de --idempotence sort en erreur.
+- name: Poser le service avec le jeton du tunnel
+  ansible.builtin.command:
+    cmd: cloudflared service install {{ pvecli_cf_token }}
+  when: not pvecli_cf_unit.stat.exists
+  changed_when: true
+  no_log: true
+
+- name: Démarrer le connecteur au boot
+  ansible.builtin.service:
+    name: cloudflared
+    state: started
+    enabled: true
+
+# systemd dit « active » dès que le process tourne. Ce qui compte, c'est qu'il
+# ait établi ses connexions vers le edge — sinon le tunnel existe et ne route rien.
+- name: Attendre que le connecteur soit enregistré auprès de Cloudflare
+  ansible.builtin.command:
+    cmd: journalctl -u cloudflared --since "-2 min" --no-pager
+  register: pvecli_cf_log
+  until: "'Registered tunnel connection' in pvecli_cf_log.stdout"
+  retries: 12
+  delay: 5
+  changed_when: false
+
+- name: Publier les sorties
+  ansible.builtin.include_role:
+    name: pvecli_publish
+  vars:
+    pvecli_publish_service: cloudflared
+    pvecli_publish_values:
+      cloudflared.tunnel: "{{ pvecli_cf_tunnel_name }}"
+      cloudflared.url: "{{ ('https://' + pvecli_cf_hostname) if pvecli_cf_hostname | length > 0 else '(aucune route déclarée)' }}"
+      cloudflared.token: "{{ pvecli_cf_token }}"

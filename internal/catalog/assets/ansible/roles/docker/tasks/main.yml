@@ -1,0 +1,73 @@
+---
+# Docker CE depuis le dépôt officiel, et non le « docker.io » de Debian : ce
+# dernier ne livre pas le plugin compose, et une VM qui doit héberger des
+# applications finit toujours par en avoir besoin.
+
+# python3-debian n'est pas décoratif : c'est ce dont deb822_repository a besoin
+# côté invité pour écrire un dépôt au format moderne.
+- name: Installer les prérequis du dépôt Docker
+  ansible.builtin.apt:
+    name: [ca-certificates, curl, python3-debian]
+    state: present
+    update_cache: true
+
+- name: Créer le dossier des clés de dépôt
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+# force: false — sans lui, get_url refait la requête à chaque passage et peut
+# rapporter « changed » selon ce que le serveur répond sur les en-têtes de
+# cache. L'idempotence est mesurée ici, pas supposée.
+- name: Poser la clé du dépôt Docker
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/debian/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+    force: false
+
+- name: Déclarer le dépôt Docker
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: [deb]
+    uris: https://download.docker.com/linux/debian
+    suites: "{{ ansible_distribution_release }}"
+    components: [stable]
+    architectures: "{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}"
+    signed_by: /etc/apt/keyrings/docker.asc
+    enabled: true
+    state: present
+
+- name: Installer le moteur Docker et le plugin compose
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+
+- name: Démarrer Docker au boot
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+
+# Le service tourne peut-être ; ça ne dit pas que le client parle au démon.
+- name: Relire la version réellement installée
+  ansible.builtin.command:
+    cmd: docker version --format '{{ "{{" }}.Server.Version{{ "}}" }}'
+  register: pvecli_docker_server
+  changed_when: false
+
+- name: Publier les sorties
+  ansible.builtin.include_role:
+    name: pvecli_publish
+  vars:
+    pvecli_publish_service: docker
+    pvecli_publish_values:
+      docker: "{{ pvecli_docker_server.stdout }}"
+      docker.socket: "unix:///var/run/docker.sock"
