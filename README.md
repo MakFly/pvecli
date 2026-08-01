@@ -126,6 +126,34 @@ is the byte that was published.
 | `PVECLI_VERSION` | pin a version instead of the latest |
 | `PREFIX` | install root (default `~/.local` → `~/.local/bin`) |
 | `PVECLI_NO_AGENT=1` | skip the Claude Code agent |
+| `PVECLI_ONLY_IF_NEWER=1` | do nothing if that version is already installed |
+
+### Staying up to date
+
+`PVECLI_ONLY_IF_NEWER=1` turns the installer into a cheap no-op when the binary
+on disk is already the published one — which is what makes it safe to run on a
+schedule. The schedule itself is two systemd user units:
+
+```sh
+scripts/autoupdate/install-timer.sh              # once a day, from now on
+scripts/autoupdate/install-timer.sh --uninstall  # and back out
+```
+
+`systemd --user`, not root: pvecli installs into `~/.local/bin`, and there is
+nothing here that needs privilege. `Persistent=true`, so an evening spent
+powered off doesn't silently skip a day.
+
+It runs the **local copy** of `install.sh` and not `curl … | sh`, deliberately.
+A daily pipe from the network grants whoever takes the repository one code
+execution per day on your machine; here the script is versioned and reviewed,
+updating it stays a deliberate `git pull`, and the bytes it installs are still
+proven against the release's `SHA256SUMS`. Reviewed script, proven bytes.
+
+```sh
+systemctl --user list-timers pvecli-update.timer   # when it next fires
+systemctl --user start pvecli-update.service       # check right now
+journalctl --user -u pvecli-update.service -n 20   # what it did
+```
 
 Only `linux/amd64` and `darwin/arm64` are published. Anywhere else, build from
 source — Go 1.26+:
