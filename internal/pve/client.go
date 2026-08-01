@@ -58,9 +58,13 @@ type Options struct {
 
 // Client talks to one Proxmox VE node.
 type Client struct {
-	base         *url.URL
-	tokenID      string
-	secret       string
+	base    *url.URL
+	tokenID string
+	secret  string
+	// Ticket authentication, used only by `login` to bootstrap a token on a
+	// node we have none for. Empty everywhere else. See ticket.go.
+	ticket       string
+	csrf         string
 	trust        TrustOptions
 	accessID     string
 	accessSecret string
@@ -324,7 +328,7 @@ func (c *Client) postMultipart(
 		return err
 	}
 	req.ContentLength = int64(head.Len()) + size + int64(len(tail))
-	req.Header.Set("Authorization", authHeader(c.tokenID, c.secret))
+	c.applyAuth(req)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	c.setAccessHeaders(req)
@@ -396,7 +400,7 @@ func (c *Client) exchange(ctx context.Context, method, path string, body url.Val
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", authHeader(c.tokenID, c.secret))
+	c.applyAuth(req)
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -466,6 +470,16 @@ func redactedHeader(req *http.Request, tokenID string) http.Header {
 	}
 	if safe.Get(accessSecretHeader) != "" {
 		safe.Set(accessSecretHeader, "<redacted>")
+	}
+	// Le ticket voyage dans un cookie et non dans Authorization : sans ces deux
+	// lignes, un « pvecli login -vv » écrirait sur stderr une session root
+	// valide deux heures. Un identifiant reste un identifiant, quel que soit
+	// l'en-tête qui le porte.
+	if safe.Get("Cookie") != "" {
+		safe.Set("Cookie", "PVEAuthCookie=<redacted>")
+	}
+	if safe.Get("CSRFPreventionToken") != "" {
+		safe.Set("CSRFPreventionToken", "<redacted>")
 	}
 	return safe
 }
