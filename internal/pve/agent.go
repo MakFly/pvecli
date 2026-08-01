@@ -2,6 +2,7 @@ package pve
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -113,6 +114,34 @@ func (c *Client) AgentInterfaces(ctx context.Context, node string, vmid int) ([]
 //   - la sortie est bufferisée par l'agent et rendue à la fin. Ce n'est pas un
 //     terminal : rien ne défile, on attend, puis on lit tout.
 
+// flexBool accepte aussi bien un booléen JSON qu'un nombre 0/1. Selon la
+// version, PVE renvoie « out-truncated » tantôt en true/false, tantôt en 1/0 :
+// PVE 9.2 le sérialise en entier, ce qui casse un décodage en bool strict.
+type flexBool bool
+
+func (b *flexBool) UnmarshalJSON(data []byte) error {
+	s := strings.TrimSpace(string(data))
+	switch s {
+	case "true", "1", "\"1\"":
+		*b = true
+	case "false", "0", "\"0\"", "null", "":
+		*b = false
+	default:
+		// Tout nombre non nul est vrai ; à défaut, on tente le bool natif.
+		var n float64
+		if err := json.Unmarshal(data, &n); err == nil {
+			*b = n != 0
+			return nil
+		}
+		var raw bool
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return err
+		}
+		*b = flexBool(raw)
+	}
+	return nil
+}
+
 // AgentExecResult is what the guest reports once the command has finished.
 type AgentExecResult struct {
 	Exited   int    `json:"exited"`
@@ -120,8 +149,8 @@ type AgentExecResult struct {
 	OutData  string `json:"out-data"`
 	ErrData  string `json:"err-data"`
 	// PVE dit « truncated » quand la sortie a dépassé ce que l'agent garde.
-	OutTruncated bool `json:"out-truncated"`
-	ErrTruncated bool `json:"err-truncated"`
+	OutTruncated flexBool `json:"out-truncated"`
+	ErrTruncated flexBool `json:"err-truncated"`
 }
 
 // AgentExec runs argv inside the guest and waits for it to finish.
