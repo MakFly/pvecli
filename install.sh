@@ -103,6 +103,16 @@ if [ "${PVECLI_ONLY_IF_NEWER:-}" = "1" ] && [ -x "$BINDIR/$BINARY" ]; then
 		say "→ pvecli $version déjà installé — rien à faire"
 		exit 0
 	fi
+	# Un binaire « dev » vient d'un `make install` : quelqu'un travaille dessus,
+	# et il contient presque toujours plus que la dernière release. Le remplacer
+	# depuis un timer, la nuit, sans que personne ne l'ait demandé, ferait
+	# disparaître ce travail — et la panne du lendemain serait cherchée partout
+	# sauf ici. On s'abstient, et on le dit.
+	if [ "$installed" = "dev" ]; then
+		say "→ pvecli compilé localement (dev) — laissé en place, $version non installée"
+		say "  pour repasser sur la release publiée :  PVECLI_ONLY_IF_NEWER= sh install.sh"
+		exit 0
+	fi
 	say "→ pvecli ${installed:-absent} → $version"
 fi
 
