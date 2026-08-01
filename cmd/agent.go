@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/MakFly/pvecli/internal/output"
 	"github.com/MakFly/pvecli/internal/pve"
@@ -24,7 +26,7 @@ C'est le lien entre l'hyperviseur et l'inventaire d'automatisation : sans agent,
 « iac inventory » (PVX-042) ne peut pas savoir où se connecter.`,
 		Args: usage(cobra.NoArgs),
 	}
-	c.AddCommand(newAgentIfacesCmd())
+	c.AddCommand(newAgentIfacesCmd(), newAgentExecCmd())
 	return c
 }
 
@@ -133,4 +135,102 @@ Endpoint : GET /api2/json/nodes/{node}/qemu/{vmid}/agent/network-get-interfaces`
 			return fmt.Errorf("la VM %d n'expose aucune adresse IPv4 non-loopback — l'agent répond mais l'invité n'a pas d'adresse", vmid)
 		},
 	}
+}
+
+// newAgentExecCmd runs a command inside the guest, through the hypervisor.
+//
+// Ce que ça remplace : un SSH. Et ce n'est pas une commodité — administrer une
+// VM par SSH suppose un compte, une clé déposée, un port ouvert et un réseau
+// qui marche. Quatre choses qui peuvent manquer, et qui manquent précisément le
+// jour où l'on a besoin d'entrer. L'agent passe par l'hyperviseur : il ne
+// dépend ni du réseau de l'invité, ni de sshd, ni d'une clé.
+func newAgentExecCmd() *cobra.Command {
+	var (
+		shell   bool
+		timeout time.Duration
+		poll    time.Duration
+	)
+
+	c := &cobra.Command{
+		Use:   "exec <vmid> -- <commande> [args…]",
+		Short: "Exécute une commande DANS la VM, sans SSH",
+		Long: `Lance une commande dans l'invité et rend sa sortie et son code de retour.
+
+Il n'y a pas de shell derrière cet appel. « exec » lance un exécutable avec des
+arguments : « cd /x && y | z » ne veut rien dire pour lui. Pour une ligne de
+shell, il faut la donner à un shell — c'est ce que fait --shell :
+
+  pvecli vm agent exec 210 -- hostname
+  pvecli vm agent exec 210 --shell 'cd /opt/app && docker compose ps'
+
+La sortie n'est pas un flux : l'agent la bufferise et la rend à la fin. Rien ne
+défile, on attend, puis on lit tout. Le code de retour de la commande devient
+celui de pvecli, pour qu'un script puisse en tenir compte.
+
+Le délai --wait borne l'ATTENTE, pas la commande : si le client renonce, le
+processus continue de tourner dans l'invité, et le message le dit avec son PID.
+
+Prérequis : qemu-guest-agent installé et démarré dans la VM, et « agent=1 » sur
+la VM côté PVE. Sans lui, l'hyperviseur n'a aucun canal vers l'intérieur.
+
+Endpoints : POST /nodes/{node}/qemu/{vmid}/agent/exec puis GET …/agent/exec-status`,
+		Args: usage(cobra.MinimumNArgs(2)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			vmid, err := strconv.Atoi(args[0])
+			if err != nil {
+				return &exitError{code: pve.ExitUsage, msg: fmt.Sprintf("vmid invalide : %q", args[0])}
+			}
+			rest := args[1:]
+
+			argv := rest
+			if shell {
+				// Une seule chaîne, donnée à sh -c. Découper nous-mêmes serait
+				// réinventer un analyseur de shell, et le réinventer mal.
+				argv = []string{"/bin/sh", "-c", strings.Join(rest, " ")}
+			}
+
+			client, err := newClient(cmd)
+			if err != nil {
+				return err
+			}
+			node, err := targetNode(cmd, nil)
+			if err != nil {
+				return err
+			}
+
+			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+			defer cancel()
+
+			res, err := client.AgentExec(ctx, node, vmid, argv, poll)
+			if err != nil {
+				return err
+			}
+
+			// La sortie de l'invité va sur NOS flux, chacun sur le sien : un
+			// script qui redirige stdout ne doit pas récolter les diagnostics.
+			if res.OutData != "" {
+				_, _ = fmt.Fprint(cmd.OutOrStdout(), res.OutData)
+			}
+			if res.ErrData != "" {
+				_, _ = fmt.Fprint(cmd.ErrOrStderr(), res.ErrData)
+			}
+			if res.OutTruncated || res.ErrTruncated {
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+					"note : sortie tronquée par l'agent — redirige vers un fichier dans l'invité pour tout garder")
+			}
+			if res.ExitCode != 0 {
+				// Le code de la commande devient le nôtre : sans ça, un script
+				// qui pilote une VM verrait réussir ce qui a échoué dedans.
+				return &exitError{code: res.ExitCode,
+					msg: fmt.Sprintf("la commande a rendu %d dans la VM %d", res.ExitCode, vmid)}
+			}
+			return nil
+		},
+	}
+
+	f := c.Flags()
+	f.BoolVar(&shell, "shell", false, "passer l'argument à « /bin/sh -c » au lieu de l'exécuter directement")
+	f.DurationVar(&timeout, "wait", 15*time.Minute, "combien de temps attendre la fin (un build est long)")
+	f.DurationVar(&poll, "poll", 2*time.Second, "intervalle entre deux demandes d'état")
+	return c
 }

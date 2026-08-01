@@ -70,6 +70,8 @@ var (
 	epQemuSnapRollback = endpoint{"POST", "/nodes/{node}/qemu/{vmid}/snapshot/{name}/rollback"}
 	epQemuSnapDelete   = endpoint{"DELETE", "/nodes/{node}/qemu/{vmid}/snapshot/{name}"}
 	epQemuAgentIfaces  = endpoint{"GET", "/nodes/{node}/qemu/{vmid}/agent/network-get-interfaces"}
+	epQemuAgentExec    = endpoint{"POST", "/nodes/{node}/qemu/{vmid}/agent/exec"}
+	epQemuAgentStatus  = endpoint{"GET", "/nodes/{node}/qemu/{vmid}/agent/exec-status"}
 
 	epLXCSnapshots    = endpoint{"GET", "/nodes/{node}/lxc/{vmid}/snapshot"}
 	epLXCSnapCreate   = endpoint{"POST", "/nodes/{node}/lxc/{vmid}/snapshot"}
@@ -145,6 +147,9 @@ var AllEndpoints = []endpoint{
 	epQemuSnapRollback,
 	epQemuSnapDelete,
 	epQemuAgentIfaces,
+	epQemuAgentExec,
+	epTicket,
+	epQemuAgentStatus,
 	epLXCSnapshots,
 	epLXCSnapCreate,
 	epLXCSnapRollback,
