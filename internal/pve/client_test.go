@@ -100,7 +100,10 @@ func TestClientSendsTheAccessServiceTokenWhenConfigured(t *testing.T) {
 func TestClientOmitsTheAccessHeadersWhenNotConfigured(t *testing.T) {
 	var present bool
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		_, present = r.Header[accessIDHeader]
+		// http.Header keys are canonicalised on the way in ("Cf-Access-Client-Id"),
+		// so indexing the map with the wire spelling always missed — the test
+		// passed without ever looking at anything.
+		_, present = r.Header[http.CanonicalHeaderKey(accessIDHeader)]
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":{"version":"9.2.2"}}`))
 	})

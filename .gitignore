@@ -15,3 +15,7 @@
 # Documentation d'accès au lab : endpoint, token, ACL, empreinte TLS.
 # Reste local — le dépôt est public.
 /LAB.md
+
+# Ancien nom du binaire — un artefact de build macOS avait été versionné par
+# accident (13 Mo). Ignoré pour que le glissement ne se reproduise pas.
+/pvectl

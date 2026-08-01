@@ -4,9 +4,12 @@
 #   curl -fsSL https://raw.githubusercontent.com/MakFly/pvecli/main/install.sh | sh
 #
 # Variables :
-#   PVECLI_VERSION   version précise (défaut : la dernière release)
-#   PREFIX           racine d'installation (défaut : ~/.local → ~/.local/bin)
-#   PVECLI_NO_AGENT  =1 pour ne pas installer l'agent Claude Code
+#   PVECLI_VERSION        version précise (défaut : la dernière release)
+#   PREFIX                racine d'installation (défaut : ~/.local → ~/.local/bin)
+#   PVECLI_NO_AGENT       =1 pour ne pas installer l'agent Claude Code
+#   PVECLI_ONLY_IF_NEWER  =1 pour ne rien faire si la version visée est déjà
+#                         installée — c'est ce qui rend ce script rejouable
+#                         sans frais depuis un timer (voir scripts/autoupdate/).
 #
 # CE SCRIPT VÉRIFIE LA SOMME SHA-256 AVANT D'INSTALLER, ET S'ARRÊTE SI ELLE NE
 # CORRESPOND PAS. Un installeur qu'on canalise dans un shell exécute du code
@@ -89,6 +92,19 @@ fi
 
 asset="${BINARY}_${version}_${target}"
 base="https://github.com/$REPO/releases/download/$version"
+
+# Rejoué chaque jour par un timer, ce script téléchargerait 13 Mo pour réécrire
+# le même octet. `pvecli --version` imprime « pvecli v0.1.0 (commit abc1234) » ;
+# le premier champ suffit à trancher. On compare des chaînes, pas des numéros :
+# on ne cherche pas « plus récent », seulement « autre chose que ce qui tourne ».
+if [ "${PVECLI_ONLY_IF_NEWER:-}" = "1" ] && [ -x "$BINDIR/$BINARY" ]; then
+	installed="$("$BINDIR/$BINARY" --version 2>/dev/null | awk '{print $2}')"
+	if [ "$installed" = "$version" ]; then
+		say "→ pvecli $version déjà installé — rien à faire"
+		exit 0
+	fi
+	say "→ pvecli ${installed:-absent} → $version"
+fi
 
 say "→ pvecli $version ($target)"
 

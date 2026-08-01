@@ -1,0 +1,20 @@
+[Unit]
+Description=Vérifie une fois par jour si pvecli a une nouvelle release
+Documentation=https://github.com/MakFly/pvecli
+
+[Timer]
+# Une fois par jour. pvecli n'est pas un service exposé : une release qui arrive
+# le matin peut attendre le lendemain. Vérifier plus souvent ne ferait que
+# consommer le quota anonyme de l'API GitHub (60 appels/h par IP).
+OnCalendar=daily
+
+# Le poste est éteint la nuit ; sans Persistent, un `OnCalendar=daily` tombé
+# pendant l'extinction est simplement sauté et la mise à jour n'arrive jamais.
+Persistent=true
+
+# Étale le déclenchement sur une heure : rien ici n'est à la seconde, et une
+# machine qui frappe GitHub à heure fixe est une machine de plus dans la pointe.
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target
