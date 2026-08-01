@@ -91,6 +91,13 @@ var (
 	epLXCUpdate = endpoint{"PUT", "/nodes/{node}/lxc/{vmid}/config"}
 	epLXCClone  = endpoint{"POST", "/nodes/{node}/lxc/{vmid}/clone"}
 
+	// Un conteneur n'a pas d'agent : PVE n'expose aucun « exec » REST pour LXC
+	// comme il le fait pour QEMU. Le seul canal vers l'intérieur passe par la
+	// console — termproxy fabrique un ticket + un port, vncwebsocket ouvre le
+	// PTY par-dessus. Voir internal/pve/lxc_exec.go et stories/BACKLOG.md (PVX-074).
+	epLXCTermproxy    = endpoint{"POST", "/nodes/{node}/lxc/{vmid}/termproxy"}
+	epLXCVNCWebsocket = endpoint{"GET", "/nodes/{node}/lxc/{vmid}/vncwebsocket"}
+
 	epNodeStorage    = endpoint{"GET", "/nodes/{node}/storage"}
 	epStorageContent = endpoint{"GET", "/nodes/{node}/storage/{storage}/content"}
 	epStorageDownURL = endpoint{"POST", "/nodes/{node}/storage/{storage}/download-url"}
@@ -165,6 +172,8 @@ var AllEndpoints = []endpoint{
 	epLXCDelete,
 	epLXCUpdate,
 	epLXCClone,
+	epLXCTermproxy,
+	epLXCVNCWebsocket,
 	epNodeStorage,
 	epStorageContent,
 	epStorageDownURL,

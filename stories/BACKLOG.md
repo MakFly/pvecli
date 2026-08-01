@@ -7,7 +7,28 @@
 
 ### PVX-074 — `lxc exec` : lancer une commande DANS un conteneur
 
-**Taille** L · **Type** ⚙ · **Dépend de** PVX-041 (`vm agent exec`) · **Statut** ⛔ bloqué par l'API — décision requise
+**Taille** L · **Type** ⚙ · **Dépend de** PVX-041 (`vm agent exec`) · **Statut** ✅ livré (voie 1, console termproxy) — 2026-08-01
+
+> **Résolu.** Implémenté via la voie 1 (termproxy + vncwebsocket), dans
+> `internal/pve/lxc_exec.go` + `cmd/lxc_exec.go`. Trois réalités que seul le nœud
+> a révélées, au-delà de ce que cette story anticipait :
+>
+> 1. **La console d'un LXC est un `getty`, pas un shell.** termproxy tombe sur
+>    « infra-01 login: ». Il faut donc s'authentifier : `lxc exec` envoie root +
+>    le mot de passe lu dans `PVE_LXC_PASSWORD` (env, comme le secret du token ;
+>    `PVE_LXC_USER` pour changer d'identité). Un conteneur créé sans mot de passe
+>    n'a pas de console utilisable — d'où l'intérêt de `lxc create --password-stdin`.
+> 2. **Le getty ne flushe qu'après une entrée.** Au repos il n'envoie rien ; on
+>    pousse un `\n` pour faire réafficher son prompt avant de le lire.
+> 3. **C'est un PTY.** Sortie et erreur mêlées, écho de l'entrée. On neutralise :
+>    `stty -echo`, script passé en base64, sortie encadrée par des sentinelles
+>    fabriquées par `printf` (jamais présentes dans la ligne tapée), code retour
+>    imprimé puis relu. Dépendance ajoutée : `github.com/coder/websocket`.
+>
+> Vérifié contre le conteneur 221 : `hostname`, pipelines, variables, codes
+> retour fidèles (0/2/3), et `apt-get update` (sortie verbeuse) passent. Ça
+> reste une console, pas un execve : pour du binaire ou du colossal, rediriger
+> vers un fichier dans le conteneur.
 
 En tant qu'opérateur, je veux `pvecli lxc exec <vmid> -- <cmd>` (et `--shell`),
 comme `vm agent exec` le fait pour les VM QEMU, afin de provisionner et piloter

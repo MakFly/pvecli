@@ -37,6 +37,7 @@ func newLXCCmd() *cobra.Command {
 	c.AddCommand(newSnapshotCmd(pve.TypeLXC))
 	c.AddCommand(newLXCCreateCmd(), newGuestRemoveCmd(pve.TypeLXC), newLXCSetCmd(), newLXCCloneCmd())
 	c.AddCommand(newMigrateCmd(pve.TypeLXC))
+	c.AddCommand(newLXCExecCmd())
 	return c
 }
 

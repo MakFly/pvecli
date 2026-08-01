@@ -54,6 +54,8 @@ de PVE **9.x** (le lab tourne en 9.2.2, pas en 8.x) ou via
 | `/nodes/{node}/lxc/{vmid}` | DELETE | `pvecli lxc rm` | PVX-031 | 2026-07-31 | `pvesh usage /nodes/pve/lxc/100 -v` |
 | `/nodes/{node}/lxc/{vmid}/config` | PUT | `pvecli lxc set` | PVX-030 | 2026-07-31 | `pvesh usage /nodes/pve/lxc/100/config -v` |
 | `/nodes/{node}/lxc/{vmid}/clone` | POST | `pvecli lxc clone` | PVX-030 | 2026-07-31 | `pvesh usage /nodes/pve/lxc/100/clone -v` |
+| `/nodes/{node}/lxc/{vmid}/termproxy` | POST | `pvecli lxc exec` (amorçage) | PVX-074 | 2026-08-01 | rend `{user, ticket, port}` — LXC n'a pas d'`agent/exec` ; la console est le seul canal vers l'intérieur (`PVE::API2::LXC::Status::termproxy`) |
+| `/nodes/{node}/lxc/{vmid}/vncwebsocket` | GET | `pvecli lxc exec` (PTY) | PVX-074 | 2026-08-01 | websocket ; 1er message `user:ticket\n` → `OK`, puis entrée framée `0:len:data`, sortie brute du PTY |
 | `/nodes/{node}/lxc/{vmid}/config` | GET | `pvecli lxc show`, `iac drift\|adopt` | PVX-013 · 044 · 045 | 2026-07-31 | `pvesh usage` sur le nœud |
 | `/nodes/{node}/lxc/{vmid}/status/current` | GET | `pvecli lxc show` | PVX-013 | 2026-07-31 | `pvesh usage` sur le nœud |
 | `/nodes/{node}/storage` | GET | `pvecli storage ls` | PVX-014 | 2026-07-31 | `pvesh get /nodes/pve/storage` |
