@@ -26,7 +26,7 @@ type endpoint struct {
 //
 // The rule lives with the placeholder rather than with the endpoint because
 // that is where it is true: any endpoint taking a {volume} needs it.
-var greedyPlaceholder = map[string]bool{"{volume}": true}
+var greedyPlaceholder = map[string]bool{"{volume}": true, "{cidr}": true}
 
 var (
 	epVersion     = endpoint{"GET", "/version"}
@@ -97,6 +97,22 @@ var (
 	// PTY par-dessus. Voir internal/pve/lxc_exec.go et stories/BACKLOG.md (PVX-074).
 	epLXCTermproxy    = endpoint{"POST", "/nodes/{node}/lxc/{vmid}/termproxy"}
 	epLXCVNCWebsocket = endpoint{"GET", "/nodes/{node}/lxc/{vmid}/vncwebsocket"}
+
+	// Firewall PVE, la best practice sur Proxmox : le filtrage vit à
+	// l'hyperviseur, par-guest, piloté par l'API — pas dans l'invité. Il ne
+	// prend effet que si le firewall datacenter est activé ET la NIC porte
+	// « firewall=1 » (posée via le config du guest). Voir internal/pve/firewall.go.
+	epClusterFwOptions = endpoint{"GET", "/cluster/firewall/options"}
+	epLXCFwOptions     = endpoint{"GET", "/nodes/{node}/lxc/{vmid}/firewall/options"}
+	epLXCFwOptionsSet  = endpoint{"PUT", "/nodes/{node}/lxc/{vmid}/firewall/options"}
+	epLXCFwRules       = endpoint{"GET", "/nodes/{node}/lxc/{vmid}/firewall/rules"}
+	epLXCFwRuleCreate  = endpoint{"POST", "/nodes/{node}/lxc/{vmid}/firewall/rules"}
+	epLXCFwRuleDelete  = endpoint{"DELETE", "/nodes/{node}/lxc/{vmid}/firewall/rules/{pos}"}
+	epClusterIPSets    = endpoint{"GET", "/cluster/firewall/ipset"}
+	epClusterIPSetNew  = endpoint{"POST", "/cluster/firewall/ipset"}
+	epClusterIPSet     = endpoint{"GET", "/cluster/firewall/ipset/{name}"}
+	epClusterIPSetAdd  = endpoint{"POST", "/cluster/firewall/ipset/{name}"}
+	epClusterIPSetDel  = endpoint{"DELETE", "/cluster/firewall/ipset/{name}/{cidr}"}
 
 	epNodeStorage    = endpoint{"GET", "/nodes/{node}/storage"}
 	epStorageContent = endpoint{"GET", "/nodes/{node}/storage/{storage}/content"}
@@ -174,6 +190,17 @@ var AllEndpoints = []endpoint{
 	epLXCClone,
 	epLXCTermproxy,
 	epLXCVNCWebsocket,
+	epClusterFwOptions,
+	epLXCFwOptions,
+	epLXCFwOptionsSet,
+	epLXCFwRules,
+	epLXCFwRuleCreate,
+	epLXCFwRuleDelete,
+	epClusterIPSets,
+	epClusterIPSetNew,
+	epClusterIPSet,
+	epClusterIPSetAdd,
+	epClusterIPSetDel,
 	epNodeStorage,
 	epStorageContent,
 	epStorageDownURL,

@@ -5,6 +5,39 @@
 
 ---
 
+### PVX-075 — Firewall PVE d'un conteneur
+
+**Taille** M · **Type** ⚙ · **Statut** ✅ livré (guest + IPSet) — 2026-08-01
+
+En tant qu'opérateur, je veux piloter le firewall PVE d'un conteneur depuis
+pvecli — la best practice Proxmox (filtrage à l'hyperviseur, par-guest, via
+l'API) plutôt que du nftables posé à la main dans l'invité.
+
+**Livré** : `internal/pve/firewall.go` + `cmd/firewall.go`.
+- `pvecli lxc firewall show|enable|disable|allow|rm <vmid>` — options, règles,
+  et pose de `firewall=1` sur net0 (sans ce drapeau, rien ne filtre).
+- `pvecli fw ipset ls|create|show|add|del` — IPSets datacenter réutilisables.
+
+**Deux réalités du nœud, gérées :**
+1. **Le firewall ne filtre que si le firewall DATACENTER est actif.** L'activer
+   sur un nœud qu'on ne joint que par l'API peut couper l'accès (8006/22) sans
+   recours console. Donc `enable` pose le guest + la NIC, mais **n'active JAMAIS
+   le datacenter** : il se contente d'avertir si celui-ci est éteint. Bascule
+   consciente laissée à l'humain.
+2. **L'IPSet datacenter exige `Sys.Modify` sur `/`**, hors périmètre d'un token
+   PVEAdmin : `fw ipset create` rend alors un 403 explicite. Les règles avec une
+   **IP/CIDR directe** en `--source`, elles, ne demandent que le droit firewall
+   du guest et fonctionnent. Documenté ; à l'appelant d'élever les droits s'il
+   veut des IPSets.
+
+Vérifié en live contre le conteneur 221 : enable (net0 firewall=1, policy_in
+DROP), allow 5432/7700 depuis 192.168.1.220, rm, show. Test unitaire
+`withFirewallFlag`.
+
+**Reste (hors lot)** : migrer le nftables in-container du LXC infra vers ce
+firewall PVE — bloqué tant que le firewall datacenter n'est pas activé (décision
+à risque, cf. point 1).
+
 ### PVX-074 — `lxc exec` : lancer une commande DANS un conteneur
 
 **Taille** L · **Type** ⚙ · **Dépend de** PVX-041 (`vm agent exec`) · **Statut** ✅ livré (voie 1, console termproxy) — 2026-08-01
