@@ -175,9 +175,9 @@ func TestValidateRefusesAnEmptyTable(t *testing.T) {
 
 func TestAddRouteReplacesTheRuleForTheSameHostname(t *testing.T) {
 	cfg := Config{}
-	cfg.AddRoute("n8n.tld", "http://10.0.0.1:5678")
-	cfg.AddRoute("git.tld", "http://10.0.0.1:3000")
-	cfg.AddRoute("n8n.tld", "http://10.0.0.2:5678")
+	cfg.AddRoute("n8n.tld", "http://10.0.0.1:5678", nil)
+	cfg.AddRoute("git.tld", "http://10.0.0.1:3000", nil)
+	cfg.AddRoute("n8n.tld", "http://10.0.0.2:5678", nil)
 
 	seen := 0
 	for _, r := range cfg.Ingress {
@@ -198,7 +198,7 @@ func TestAddRouteReplacesTheRuleForTheSameHostname(t *testing.T) {
 
 func TestRemoveRouteReportsWhetherItFoundAnything(t *testing.T) {
 	cfg := Config{}
-	cfg.AddRoute("n8n.tld", "http://10.0.0.1:5678")
+	cfg.AddRoute("n8n.tld", "http://10.0.0.1:5678", nil)
 
 	if !cfg.RemoveRoute("n8n.tld") {
 		t.Error("RemoveRoute doit signaler qu'il a trouvé la règle")
@@ -209,6 +209,74 @@ func TestRemoveRouteReportsWhetherItFoundAnything(t *testing.T) {
 	// Removing the last route must not leave a table cloudflared refuses.
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("table invalide après le retrait de la dernière route : %v", err)
+	}
+}
+
+// Proxmox serves its API under a self-signed certificate: without this option
+// the tunnel comes up and the origin answers 502.
+func TestAddRouteCarriesTheOriginOptions(t *testing.T) {
+	cfg := Config{}
+	cfg.AddRoute("pve.tld", "https://10.0.0.23:8006", &OriginRequest{NoTLSVerify: true})
+
+	if got := len(cfg.Ingress); got != 2 {
+		t.Fatalf("%d règles, attendu la route et le catch-all", got)
+	}
+	if !cfg.Ingress[0].SkipsTLSVerify() {
+		t.Error("la route doit porter noTLSVerify : sans lui cloudflared refuse le certificat de Proxmox")
+	}
+	// The catch-all is not an origin: giving it options would be meaningless.
+	if cfg.Ingress[1].SkipsTLSVerify() {
+		t.Error("le catch-all ne doit pas hériter des options d'origine")
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("table invalide : %v", err)
+	}
+}
+
+// The PUT replaces the whole table, so writing one route re-sends every other.
+// A rule whose options do not survive that round trip is a rule silently
+// downgraded: the tunnel keeps running and the origin starts answering 502.
+func TestWritingOneRoutePreservesTheOptionsOfTheOthers(t *testing.T) {
+	var sent struct {
+		Config Config `json:"config"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(ok(`{"config":{"ingress":[
+				{"hostname":"pve.tld","service":"https://10.0.0.23:8006","originRequest":{"noTLSVerify":true}},
+				{"service":"http_status:404"}]}}`)))
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&sent)
+		_, _ = w.Write([]byte(ok(`{}`)))
+	}))
+	defer srv.Close()
+
+	c, err := New(Options{Token: "jeton", AccountID: "compte", BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	cfg, err := c.TunnelConfig(ctx, "aaa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.AddRoute("n8n.tld", "http://10.0.0.220:5678", nil)
+	if err := c.SetTunnelConfig(ctx, "aaa", cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	var pve *IngressRule
+	for i, r := range sent.Config.Ingress {
+		if r.Hostname == "pve.tld" {
+			pve = &sent.Config.Ingress[i]
+		}
+	}
+	if pve == nil {
+		t.Fatal("la règle pve.tld a disparu de la table réécrite")
+	}
+	if !pve.SkipsTLSVerify() {
+		t.Error("noTLSVerify perdu au passage lecture → écriture")
 	}
 }
 
@@ -307,5 +375,93 @@ func TestEndpointPathSubstitutesInOrder(t *testing.T) {
 	got := epTunnelDelete.path("compte", "aaa")
 	if got != "/accounts/compte/cfd_tunnel/aaa" {
 		t.Errorf("path = %q", got)
+	}
+}
+
+// The expensive one. A service token inside an "allow" policy is accepted by
+// the API and lets EVERY request through, authenticated or not — because
+// "allow" means "an identity authenticated" and a service token carries none.
+func TestServiceTokenInAnAllowPolicyIsRefused(t *testing.T) {
+	p := Policy{Name: "cli", Decision: DecisionAllow,
+		Include: []Rule{IncludeServiceToken("abc")}}
+
+	err := p.Validate()
+	if err == nil {
+		t.Fatal("un service token dans une policy « allow » doit être refusé")
+	}
+	if !strings.Contains(err.Error(), DecisionServiceAuth) {
+		t.Errorf("le refus doit nommer la décision correcte, got: %v", err)
+	}
+
+	// The same rule with the right decision is exactly what we want.
+	p.Decision = DecisionServiceAuth
+	if err := p.Validate(); err != nil {
+		t.Errorf("une policy « %s » avec un service token est valide : %v", DecisionServiceAuth, err)
+	}
+}
+
+// A policy with no include admits nobody, which is not the same as protecting
+// nothing — but it is never what someone meant to write.
+func TestPolicyWithoutIncludeIsRefused(t *testing.T) {
+	if err := (Policy{Decision: DecisionAllow}).Validate(); err == nil {
+		t.Error("une policy sans include doit être refusée")
+	}
+}
+
+// The table an operator reads before trusting the door has to say who gets in.
+func TestPolicyDescribesWhoItAdmits(t *testing.T) {
+	p := Policy{Decision: DecisionAllow, Include: []Rule{
+		IncludeEmail("moi@exemple.tld"), IncludeEmailDomain("exemple.tld"),
+	}}
+	got := p.Describe()
+	if !strings.Contains(got, "moi@exemple.tld") || !strings.Contains(got, "@exemple.tld") {
+		t.Errorf("Describe() = %q, doit nommer qui passe", got)
+	}
+}
+
+// An application is identified by the hostname it protects: two apps may share
+// a display name, never a domain. Cloudflare stores the domain with an optional
+// path, so a bare hostname has to match the app that covers it.
+func TestAppByDomainMatchesAPathScopedApplication(t *testing.T) {
+	c := stub(t, map[string]string{
+		"GET /accounts/compte/access/apps": ok(`[
+			{"id":"a1","name":"autre","domain":"git.example.com"},
+			{"id":"a2","name":"proxmox","domain":"pve.example.com/"}]`),
+	})
+
+	app, err := c.AppByDomain(context.Background(), "pve.example.com")
+	if err != nil {
+		t.Fatalf("AppByDomain: %v", err)
+	}
+	if app.ID != "a2" {
+		t.Errorf("app = %q, attendu celle qui couvre le nom", app.ID)
+	}
+
+	if _, err := c.AppByDomain(context.Background(), "absent.example.com"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("un nom non couvert doit répondre ErrNotFound, got %v", err)
+	}
+}
+
+// The type is not the caller's to choose: a service behind a tunnel is
+// self-hosted, and letting it be anything else produces an application that
+// protects nothing recognisable.
+func TestCreateAppAlwaysDeclaresSelfHosted(t *testing.T) {
+	var sent map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&sent)
+		_, _ = w.Write([]byte(ok(`{"id":"a1","domain":"pve.example.com"}`)))
+	}))
+	defer srv.Close()
+
+	c, err := New(Options{Token: "jeton", AccountID: "compte", BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateApp(context.Background(),
+		App{Name: "proxmox", Domain: "pve.example.com", SessionDuration: "24h"}); err != nil {
+		t.Fatal(err)
+	}
+	if sent["type"] != AppTypeSelfHosted {
+		t.Errorf("type = %v, want %q", sent["type"], AppTypeSelfHosted)
 	}
 }

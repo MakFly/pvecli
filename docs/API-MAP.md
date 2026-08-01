@@ -14,6 +14,8 @@ de PVE **9.x** (le lab tourne en 9.2.2, pas en 8.x) ou via
 | `/access/permissions` | GET | `pvecli doctor` | PVX-008 | 2026-07-31 | appel réel avec le token `automation@pve!pvectl` |
 | `/cluster/resources` | GET | `pvecli cluster resources`, `iac inventory\|drift\|adopt` | PVX-016 · 042 · 044 | 2026-07-31 | `pvesh usage /cluster/resources` sur le nœud |
 | `/access/users` | GET | `pvecli access user ls` | PVX-033 | 2026-07-31 | `pvesh get /access/users` sur le nœud |
+| `/access/users` | POST | `pvecli access user create` | PVX-070 | 2026-08-01 | `search-pve-api.ts "/access/users"` — exige `Realm.AllocateUser` sur `/access/realm/<realm>` **et** `User.Modify` sur `/access/groups` |
+| `/access/users/{userid}` | GET | pre-read et post-read de `user create` | PVX-070 | 2026-08-01 | `search-pve-api.ts "/access/users"` — la réponse ne **répète pas** `userid` : l'appelant l'a demandé |
 | `/access/roles` | GET | `pvecli access role ls` | PVX-033 | 2026-07-31 | `pvesh get /access/roles` sur le nœud |
 | `/access/roles/{roleid}` | GET | `pvecli access role show` | PVX-033 | 2026-07-31 | `pvesh get /access/roles/PVEVMAdmin` sur le nœud |
 | `/access/acl` | GET | `pvecli access acl ls` | PVX-033 | 2026-07-31 | `pvesh get /access/acl` sur le nœud |
@@ -124,6 +126,8 @@ Authorization: PVEAPIToken=<user>@<realm>!<tokenname>=<secret>
 | `compress` (vzdump) | `0` veut dire **aucune compression**, pas « niveau zéro ». Les autres valeurs sont des noms d'algorithmes (`zstd`, `gzip`, `lzo`), pas des niveaux |
 | restauration | **il n'existe pas d'endpoint « restore »** : c'est `POST /nodes/{n}/qemu` (ou `/lxc`) avec `archive=<volid>`. Le schéma conditionne explicitement `force` à la présence d'`archive` |
 | `bwlimit`, `ionice`, `performance` (vzdump) | exigent `Sys.Modify` sur `/` — un token de moindre privilège ne peut pas les passer |
+| `pool` (`POST /nodes/{n}/qemu`) | le schéma le donne pour optionnel, et il ne l'est pas pour tout le monde : la création exige `VM.Allocate` sur `/vms/{vmid}` **ou sur `/pool/{pool}`**. Une identité dont le droit tient au pool ne peut créer qu'en le nommant. Le même appel réclame en plus `Datastore.AllocateSpace` sur le stockage et `SDN.Use` sur le pont |
+| `DELETE /nodes/{n}/qemu/{vmid}` | vérifie `VM.Allocate` sur **`/vms/{vmid}`**, pas sur le pool. La destruction ne marche pour un membre de pool que parce que l'ACL du pool porte sur les VM qu'il contient — c'est le mécanisme, pas une tolérance |
 
 
 ## Contrat d'écriture du projet (PVX-021)

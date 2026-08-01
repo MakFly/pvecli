@@ -30,6 +30,17 @@ const (
 	EnvAccountID = "CF_ACCOUNT_ID"
 )
 
+// The service token of a Cloudflare Access application sitting in front of the
+// node. Access turns away anything that is not a browser, so without these a
+// remote `pvecli` gets a redirect to a login page instead of the API.
+//
+// Same rule as PVE_API_TOKEN_SECRET: the environment only. A secret in the
+// config file outlives the session it was needed for.
+const (
+	EnvAccessClientID     = "CF_ACCESS_CLIENT_ID"
+	EnvAccessClientSecret = "CF_ACCESS_CLIENT_SECRET"
+)
+
 // File is the on-disk document.
 type File struct {
 	CurrentContext string              `yaml:"current_context"`

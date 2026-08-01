@@ -3,9 +3,13 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
+	"os"
 	"sort"
 	"strings"
 
+	"github.com/MakFly/pvecli/internal/config"
 	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/spf13/cobra"
 )
@@ -44,10 +48,17 @@ Endpoints : GET /version · /cluster/status · /nodes · /access/permissions`,
 				return err
 			}
 
+			hasAccessToken := os.Getenv(config.EnvAccessClientID) != "" &&
+				os.Getenv(config.EnvAccessClientSecret) != ""
+
 			out := cmd.OutOrStdout()
 			_, _ = fmt.Fprintf(out, "cible     %s\n", eff.Endpoint)
 			_, _ = fmt.Fprintf(out, "identité  %s\n", eff.TokenID)
-			_, _ = fmt.Fprintf(out, "TLS       %s\n\n", client.TrustMode())
+			_, _ = fmt.Fprintf(out, "TLS       %s\n", client.TrustMode())
+			if hasAccessToken {
+				_, _ = fmt.Fprintf(out, "Access    service token présent\n")
+			}
+			_, _ = fmt.Fprintln(out)
 
 			checks := []check{
 				{"endpoint joignable et version lue", true, func(ctx context.Context, c *pve.Client) (string, error) {
@@ -102,7 +113,7 @@ Endpoints : GET /version · /cluster/status · /nodes · /access/permissions`,
 				_, _ = fmt.Fprintf(out, "✓  %s — %s\n", ch.label, detail)
 			}
 
-			for _, w := range warnings(eff.TokenID, client.TrustMode()) {
+			for _, w := range warnings(eff.TokenID, eff.Endpoint, client.TrustMode(), hasAccessToken) {
 				_, _ = fmt.Fprintf(out, "⚠  %s\n", w)
 			}
 
@@ -111,8 +122,9 @@ Endpoints : GET /version · /cluster/status · /nodes · /access/permissions`,
 	}
 }
 
-// warnings flags the two habits this project exists to avoid.
-func warnings(tokenID string, mode pve.TrustMode) []string {
+// warnings flags the two habits this project exists to avoid, plus the one
+// misdiagnosis a node published on the internet invites.
+func warnings(tokenID, endpoint string, mode pve.TrustMode, hasAccessToken bool) []string {
 	var out []string
 	if mode == pve.TrustNone {
 		out = append(out, "vérification TLS désactivée — épingle l'empreinte : pvecli config trust")
@@ -120,7 +132,42 @@ func warnings(tokenID string, mode pve.TrustMode) []string {
 	if strings.HasPrefix(tokenID, "root@pam") {
 		out = append(out, "token porté par root@pam — utilise une identité dédiée avec le rôle minimal")
 	}
+	if !hasAccessToken && isPublicHost(endpoint) {
+		out = append(out, "endpoint public sans service token Cloudflare — si un 403 tombe ici,\n"+
+			"   il vient peut-être d'Access et non de Proxmox : exporte CF_ACCESS_CLIENT_ID\n"+
+			"   et CF_ACCESS_CLIENT_SECRET")
+	}
 	return out
+}
+
+// localTLDs are the suffixes a homelab gives itself. A node behind one of them
+// is reached directly, whatever the DNS says.
+var localTLDs = []string{".lan", ".local", ".home", ".internal", ".localdomain"}
+
+// isPublicHost reports whether the endpoint looks like a name published on the
+// internet — the only case where an Access application can sit in the way.
+// A private address, a loopback, a bare hostname or a homelab suffix is not one.
+func isPublicHost(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if host == "" {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast()
+	}
+	if !strings.Contains(host, ".") {
+		return false
+	}
+	for _, suffix := range localTLDs {
+		if strings.HasSuffix(strings.ToLower(host), suffix) {
+			return false
+		}
+	}
+	return true
 }
 
 // summarisePermissions turns the permission map into the one sentence that

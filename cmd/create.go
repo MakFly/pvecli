@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"strconv"
@@ -24,6 +26,7 @@ type createOpts struct {
 	bridge     string
 	osType     string
 	tags       string
+	pool       string
 
 	cloudInit bool
 	ciUser    string
@@ -52,6 +55,11 @@ remplace l'ancien « qm importdisk » en deux temps.
 --cloud-init ajoute le lecteur cloud-init, le disque de démarrage et la console
 série que les images cloud attendent. Sans lui, une image cloud démarre mais
 reste inaccessible : aucun utilisateur, aucune clé, aucun réseau configuré.
+
+--pool range la VM dans un pool DÈS SA CRÉATION. Ce n'est pas du classement :
+le nœud accepte « VM.Allocate » sur « /vms/{vmid} » OU sur « /pool/{pool} ». Une
+identité dont les droits tiennent au pool ne peut donc créer qu'en le nommant —
+sans --pool, elle reçoit un 403 sur une VM qu'elle a pourtant le droit de créer.
 
 Endpoint : POST /api2/json/nodes/{node}/qemu`,
 		Args: usage(cobra.ExactArgs(1)),
@@ -118,7 +126,7 @@ Endpoint : POST /api2/json/nodes/{node}/qemu`,
 				},
 			})
 			if err != nil {
-				return err
+				return explainCreateForbidden(err, o.pool)
 			}
 
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
@@ -146,6 +154,7 @@ Endpoint : POST /api2/json/nodes/{node}/qemu`,
 	f.StringVar(&o.bridge, "bridge", "vmbr0", "pont réseau")
 	f.StringVar(&o.osType, "ostype", "l26", "type d'OS (l26 = Linux 2.6+)")
 	f.StringVar(&o.tags, "tags", "", "tags, séparés par des virgules")
+	f.StringVar(&o.pool, "pool", "", "pool de rattachement — requis si VM.Allocate est porté par un pool et non par /vms")
 	f.BoolVar(&o.cloudInit, "cloud-init", false, "ajoute le lecteur cloud-init, le boot et la console série")
 	f.StringVar(&o.ciUser, "ci-user", "", "utilisateur cloud-init")
 	f.StringVar(&o.sshKeys, "ssh-keys", "", "fichier de clés publiques SSH à injecter")
@@ -155,6 +164,24 @@ Endpoint : POST /api2/json/nodes/{node}/qemu`,
 	addWriteFlags(c)
 	addRenderFlags(c)
 	return c
+}
+
+// explainCreateForbidden adds what the generic 403 hint cannot know: creation
+// accepts VM.Allocate on /pool/{pool} as well as on /vms/{vmid}. An identity
+// whose right is held by a pool is refused until it names that pool — and the
+// refusal, read literally, says the opposite: that it may not create at all.
+func explainCreateForbidden(err error, pool string) error {
+	var apiErr *pve.APIError
+	if pool != "" || !errors.As(err, &apiErr) || apiErr.Status != http.StatusForbidden {
+		return err
+	}
+	return fmt.Errorf(`%w
+
+Aucun --pool n'a été donné. Le nœud accepte « VM.Allocate » sur « /vms/{vmid} »
+OU sur « /pool/{pool} » : si tes droits tiennent à un pool, la création n'est
+autorisée qu'en le nommant.
+  pvecli pool ls
+  pvecli vm create … --pool <pool>`, err)
 }
 
 // payload resolves every flag into the exact parameters that will be sent.
@@ -171,6 +198,9 @@ func (o createOpts) payload(vmid int) (url.Values, error) {
 	// web interface picks by default.
 	p.Set("scsihw", "virtio-scsi-single")
 	p.Set("net0", "virtio,bridge="+o.bridge)
+	if o.pool != "" {
+		p.Set("pool", o.pool)
+	}
 
 	switch {
 	case o.importFrom != "":

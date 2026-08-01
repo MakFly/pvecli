@@ -109,3 +109,67 @@ func TestTokenPlanNeverPrintsASecret(t *testing.T) {
 		t.Errorf("le secret du token courant a fuité dans le plan ou la trace :\n%s", stderr)
 	}
 }
+
+// A realm is part of an identity: "collegue" and "collegue@pve" are not the
+// same thing, and the second is the only one the node understands.
+func TestUserCreateDemandsARealm(t *testing.T) {
+	_, _, err := run(t, "access", "user", "create", "collegue", "--no-expire", "--no-password")
+
+	var coded interface{ ExitCode() int }
+	if !errors.As(err, &coded) || coded.ExitCode() != pve.ExitUsage {
+		t.Errorf("un identifiant sans realm est une erreur d'usage, got %v", err)
+	}
+}
+
+// Same reasoning as the API token: an access lent without an expiry becomes a
+// permanent access nobody decided to grant.
+func TestUserCreateDemandsAnExpiry(t *testing.T) {
+	_, _, err := run(t, "access", "user", "create", "collegue@pve", "--no-password")
+
+	var coded interface{ ExitCode() int }
+	if !errors.As(err, &coded) || coded.ExitCode() != pve.ExitUsage {
+		t.Errorf("--expire manquant est une erreur d'usage, got %v", err)
+	}
+}
+
+// Without a variable and without a terminal, the only alternatives are refusing
+// or silently creating a passwordless account. Refusing is the one that does
+// not surprise anyone three weeks later.
+func TestUserCreateRefusesWhenItCannotAskForAPassword(t *testing.T) {
+	t.Setenv(EnvNewUserPassword, "")
+	_, _, err := run(t, "access", "user", "create", "collegue@pve", "--no-expire")
+
+	var coded interface{ ExitCode() int }
+	if !errors.As(err, &coded) || coded.ExitCode() != pve.ExitConfirm {
+		t.Errorf("sans mot de passe ni terminal, il faut refuser en 5, got %v", err)
+	}
+}
+
+// The node refuses under 8 characters. Finding that out after the pre-read has
+// already run is a round trip for nothing.
+func TestUserCreateRefusesAShortPassword(t *testing.T) {
+	t.Setenv(EnvNewUserPassword, "court")
+	_, _, err := run(t, "access", "user", "create", "collegue@pve", "--no-expire")
+
+	var coded interface{ ExitCode() int }
+	if !errors.As(err, &coded) || coded.ExitCode() != pve.ExitUsage {
+		t.Errorf("un mot de passe trop court est une erreur d'usage, got %v", err)
+	}
+}
+
+// The plan a --dry-run prints is the real payload everywhere in this project —
+// except here, where printing it would put a password in a scrollback.
+func TestUserOptionsRedactThePassword(t *testing.T) {
+	o := pve.UserOptions{Password: "s3cr3t-long"}
+
+	if got := o.Values("collegue@pve").Get("password"); got != "s3cr3t-long" {
+		t.Errorf("le payload réel doit porter le mot de passe, got %q", got)
+	}
+	if got := o.Redacted("collegue@pve").Get("password"); got == "s3cr3t-long" {
+		t.Error("le payload affiché ne doit pas porter le mot de passe")
+	}
+	// A user with no password has nothing to redact, and no empty key to send.
+	if _, present := (pve.UserOptions{}).Values("collegue@pve")["password"]; present {
+		t.Error("aucun paramètre password ne doit partir quand il n'y en a pas")
+	}
+}

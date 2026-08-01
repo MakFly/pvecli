@@ -3,14 +3,17 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+	"golang.org/x/term"
+
 	"github.com/MakFly/pvecli/internal/output"
 	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/MakFly/pvecli/internal/service"
-	"github.com/spf13/cobra"
 )
 
 func newAccessCmd() *cobra.Command {
@@ -229,8 +232,199 @@ func newUserCmd() *cobra.Command {
 		},
 	}
 	addRenderFlags(ls)
-	c.AddCommand(ls)
+	c.AddCommand(ls, newUserCreateCmd())
 	return c
+}
+
+// EnvNewUserPassword is where the initial password of a new account comes from.
+// Same rule as the API token secret: the environment, never a flag — a flag is
+// visible in `ps` to every user of the machine, and stays in the shell history.
+const EnvNewUserPassword = "PVE_NEW_USER_PASSWORD"
+
+func newUserCreateCmd() *cobra.Command {
+	var comment, email, groups, expire string
+	var noExpire, disable, noPassword bool
+
+	c := &cobra.Command{
+		Use:   "create <utilisateur@realm>",
+		Short: "Crée un compte (POST /access/users)",
+		Long: `Crée un compte sur le nœud.
+
+L'identifiant porte TOUJOURS son realm : « collegue@pve », jamais « collegue ».
+Le realm fait partie de l'identité — deux comptes du même nom dans deux realms
+sont deux personnes différentes.
+
+Le mot de passe initial ne se donne pas en argument. Il vient de
+` + EnvNewUserPassword + `, ou d'une saisie masquée si le terminal le permet :
+
+  export PVE_NEW_USER_PASSWORD="…"        # 8 caractères minimum, exigence du nœud
+  pvecli access user create collegue@pve --comment "accès lab"
+
+--no-password crée un compte SANS mot de passe. Ce n'est pas un compte ouvert :
+c'est un compte qui ne peut pas se connecter à l'interface web, et qui n'existe
+que pour porter des tokens d'API. Un choix légitime, à condition d'être un choix.
+
+Ce que ce compte pourra faire est décidé APRÈS, par une ACL — un compte fraîchement
+créé n'a aucun droit, pas même de se voir :
+
+  pvecli pool create collegue
+  pvecli access acl set --path /pool/collegue --role PVEVMAdmin --user collegue@pve
+
+Privilèges exigés par le nœud : « Realm.AllocateUser » sur
+« /access/realm/<realm> » et « User.Modify » sur « /access/groups ». Un token
+d'audit ne les a pas, et c'est voulu.
+
+Endpoint : POST /api2/json/access/users`,
+		Args: usage(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			userID := args[0]
+			if !strings.Contains(userID, "@") {
+				return &exitError{
+					code: pve.ExitUsage,
+					msg: fmt.Sprintf("« %s » n'a pas de realm — il en faut un : %s@pve\n"+
+						"  pvecli access user ls     (pour voir les realms en usage)", userID, userID),
+				}
+			}
+			if expire == "" && !noExpire {
+				return &exitError{
+					code: pve.ExitUsage,
+					msg: "--expire est obligatoire : un accès prêté qui n'expire pas devient un accès permanent\n" +
+						"que personne n'a décidé d'accorder.\n" +
+						"  --expire 2026-12-31     (ou --no-expire, si c'est un choix)",
+				}
+			}
+			epoch, err := parseExpiry(expire, noExpire)
+			if err != nil {
+				return err
+			}
+
+			password, err := resolveNewPassword(cmd, noPassword)
+			if err != nil {
+				return err
+			}
+
+			opts, err := renderOptions(cmd)
+			if err != nil {
+				return err
+			}
+			client, err := newClient(cmd)
+			if err != nil {
+				return err
+			}
+
+			o := pve.UserOptions{
+				Comment: comment, Email: email, Groups: groups,
+				Password: password, Expire: epoch, Disable: disable,
+			}
+			runner := newRunner(cmd, client)
+
+			result, err := runner.Run(cmd.Context(), service.Mutation{
+				Target: userID,
+				// Creating an identity is not destructive, but it is an identity:
+				// the confirmation follows the consequence, not the verb.
+				Destructive: true,
+				Plan: service.Plan{
+					Method: "POST",
+					Path:   pve.UserPath(),
+					// Redacted, and only here: the payload this project prints is
+					// the real one everywhere else. A password on a terminal ends
+					// up in a scrollback.
+					Payload:  o.Redacted(userID),
+					Effect:   fmt.Sprintf("compte « %s » créé, expire %s, AUCUN droit", userID, expiryLabel(epoch)),
+					Rollback: "suppression depuis l'interface — DELETE /access/users n'est pas implémenté ici",
+					Verify:   "relecture du compte",
+				},
+				PreRead: func(ctx context.Context) (service.State, error) {
+					if _, err := client.UserInfo(ctx, userID); err == nil {
+						return service.State{}, fmt.Errorf(
+							"le compte « %s » existe déjà — le recréer écraserait ses attributs", userID)
+					}
+					return service.State{Exists: true, Status: "identifiant libre"}, nil
+				},
+				Write: func(ctx context.Context) (string, error) {
+					return "", client.CreateUser(ctx, userID, o)
+				},
+				PostRead: func(ctx context.Context) (service.State, error) {
+					info, err := client.UserInfo(ctx, userID)
+					if err != nil {
+						return service.State{}, err
+					}
+					return service.State{Exists: true, Status: "créé", Raw: info}, nil
+				},
+			})
+			if err != nil {
+				return err
+			}
+
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			if !dryRun {
+				// A new account can do strictly nothing. Saying so here avoids the
+				// next half-hour spent wondering why it cannot even list a VM.
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+					"\n« %s » n'a encore AUCUN droit — pas même de se lister. Ensuite :\n"+
+						"  pvecli access acl set --path /pool/<pool> --role PVEVMAdmin --user %s\n", userID, userID)
+			}
+
+			rows := output.Rows{Headers: []string{"CHAMP", "VALEUR"}, Cells: [][]string{
+				{"utilisateur", userID},
+				{"état", result.Status},
+				{"expire", expiryLabel(epoch)},
+				{"mot de passe", yesNo(password != "")},
+			}}
+			return output.Render(cmd.OutOrStdout(), opts, result.Raw, rows)
+		},
+	}
+
+	f := c.Flags()
+	f.StringVar(&comment, "comment", "", "commentaire — dis à quoi sert ce compte")
+	f.StringVar(&email, "email", "", "adresse e-mail du compte")
+	f.StringVar(&groups, "groups", "", "groupes, séparés par des virgules")
+	f.StringVar(&expire, "expire", "", "date d'expiration, AAAA-MM-JJ")
+	f.BoolVar(&noExpire, "no-expire", false, "compte sans expiration — à assumer")
+	f.BoolVar(&disable, "disable", false, "crée le compte désactivé")
+	f.BoolVar(&noPassword, "no-password", false, "compte sans mot de passe : ne peut pas se connecter à l'interface web")
+	addWriteFlags(c)
+	addRenderFlags(c)
+	return c
+}
+
+// resolveNewPassword gets the initial password from the environment, or asks
+// for it on a terminal. It is never a flag, and never echoed.
+//
+// Refusing when there is neither a variable nor a terminal is deliberate: the
+// alternative is creating a passwordless account in a script that believed it
+// was setting one.
+func resolveNewPassword(cmd *cobra.Command, noPassword bool) (string, error) {
+	if noPassword {
+		return "", nil
+	}
+	if fromEnv := os.Getenv(EnvNewUserPassword); fromEnv != "" {
+		if len(fromEnv) < 8 {
+			return "", &exitError{code: pve.ExitUsage,
+				msg: EnvNewUserPassword + " fait moins de 8 caractères — le nœud refusera"}
+		}
+		return fromEnv, nil
+	}
+	if !stdinIsTerminal() {
+		return "", &exitError{
+			code: pve.ExitConfirm,
+			msg: "aucun mot de passe et aucun terminal pour le demander.\n" +
+				"  export " + EnvNewUserPassword + "=\"…\"\n" +
+				"  ou --no-password, pour un compte qui ne portera que des tokens",
+		}
+	}
+
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Mot de passe initial (8 caractères minimum, non affiché) : ")
+	raw, err := term.ReadPassword(int(os.Stdin.Fd()))
+	_, _ = fmt.Fprintln(cmd.ErrOrStderr())
+	if err != nil {
+		return "", err
+	}
+	password := string(raw)
+	if len(password) < 8 {
+		return "", &exitError{code: pve.ExitUsage, msg: "mot de passe trop court : 8 caractères minimum"}
+	}
+	return password, nil
 }
 
 // expiryLabel turns an epoch into something an operator can act on. A raw

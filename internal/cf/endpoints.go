@@ -24,6 +24,15 @@ var (
 	epTunnelConfig = endpoint{"GET", "/accounts/{account}/cfd_tunnel/{tunnel}/configurations"}
 	epTunnelSetCfg = endpoint{"PUT", "/accounts/{account}/cfd_tunnel/{tunnel}/configurations"}
 
+	epAccessApps      = endpoint{"GET", "/accounts/{account}/access/apps"}
+	epAccessAppCreate = endpoint{"POST", "/accounts/{account}/access/apps"}
+	epAccessAppDelete = endpoint{"DELETE", "/accounts/{account}/access/apps/{app}"}
+	epAccessPolicies  = endpoint{"GET", "/accounts/{account}/access/apps/{app}/policies"}
+	epAccessPolicyAdd = endpoint{"POST", "/accounts/{account}/access/apps/{app}/policies"}
+	epAccessPolicyDel = endpoint{"DELETE", "/accounts/{account}/access/apps/{app}/policies/{policy}"}
+	epAccessTokens    = endpoint{"GET", "/accounts/{account}/access/service_tokens"}
+	epAccessTokenAdd  = endpoint{"POST", "/accounts/{account}/access/service_tokens"}
+
 	epZones         = endpoint{"GET", "/zones"}
 	epDNSRecords    = endpoint{"GET", "/zones/{zone}/dns_records"}
 	epDNSCreate     = endpoint{"POST", "/zones/{zone}/dns_records"}
@@ -37,6 +46,9 @@ var AllEndpoints = []endpoint{
 	epTokenVerify, epAccounts,
 	epTunnels, epTunnelCreate, epTunnelDelete, epTunnelToken,
 	epTunnelConfig, epTunnelSetCfg,
+	epAccessApps, epAccessAppCreate, epAccessAppDelete,
+	epAccessPolicies, epAccessPolicyAdd, epAccessPolicyDel,
+	epAccessTokens, epAccessTokenAdd,
 	epZones, epDNSRecords, epDNSCreate, epDNSUpdate, epDNSRecordDrop,
 }
 

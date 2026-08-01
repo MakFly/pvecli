@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
+	"github.com/MakFly/pvecli/internal/config"
 	"github.com/MakFly/pvecli/internal/log"
 	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/spf13/cobra"
@@ -21,16 +23,24 @@ func newClient(cmd *cobra.Command) (*pve.Client, error) {
 	timeout, _ := cmd.Flags().GetDuration("timeout")
 	verbosity, _ := cmd.Flags().GetCount("verbose")
 
-	// The tracer is told the secret so it can blank it wherever it might
+	// A Cloudflare Access application in front of the node turns away anything
+	// that is not a browser. These two headers are how a CLI gets through, and
+	// like every other secret here they come from the environment only.
+	accessID := os.Getenv(config.EnvAccessClientID)
+	accessSecret := os.Getenv(config.EnvAccessClientSecret)
+
+	// The tracer is told the secrets so it can blank them wherever they might
 	// surface — in a body, in a redirect URL, in an error echoed by the node.
-	tracer := log.New(cmd.ErrOrStderr(), log.LevelFor(verbosity), eff.TokenSecret)
+	tracer := log.New(cmd.ErrOrStderr(), log.LevelFor(verbosity), eff.TokenSecret, accessSecret)
 
 	client, err := pve.New(pve.Options{
-		Endpoint: eff.Endpoint,
-		TokenID:  eff.TokenID,
-		Secret:   eff.TokenSecret,
-		Timeout:  timeout,
-		Trace:    traceOrNil(tracer),
+		Endpoint:           eff.Endpoint,
+		TokenID:            eff.TokenID,
+		Secret:             eff.TokenSecret,
+		Timeout:            timeout,
+		AccessClientID:     accessID,
+		AccessClientSecret: accessSecret,
+		Trace:              traceOrNil(tracer),
 		Trust: pve.TrustOptions{
 			Fingerprint: eff.TLS.Fingerprint,
 			CAFile:      eff.TLS.CAFile,

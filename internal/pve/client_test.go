@@ -67,6 +67,85 @@ func TestClientSendsTokenAndNoCSRF(t *testing.T) {
 	}
 }
 
+// Behind Cloudflare Access, these two headers are the difference between
+// reaching the API and being handed a login page.
+func TestClientSendsTheAccessServiceTokenWhenConfigured(t *testing.T) {
+	var gotID, gotSecret string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotID = r.Header.Get(accessIDHeader)
+		gotSecret = r.Header.Get(accessSecretHeader)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"version":"9.2.2"}}`))
+	}))
+	defer srv.Close()
+
+	c, err := New(Options{
+		Endpoint: srv.URL, TokenID: "automation@pve!pvectl", Secret: "s3cr3t",
+		AccessClientID: "client-id", AccessClientSecret: "client-secret",
+		Transport: srv.Client().Transport,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := c.Version(context.Background()); err != nil {
+		t.Fatalf("Version: %v", err)
+	}
+	if gotID != "client-id" || gotSecret != "client-secret" {
+		t.Errorf("%s = %q, %s = %q", accessIDHeader, gotID, accessSecretHeader, gotSecret)
+	}
+}
+
+// On the LAN there is no Access application. Sending the headers empty would
+// still be sending them.
+func TestClientOmitsTheAccessHeadersWhenNotConfigured(t *testing.T) {
+	var present bool
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, present = r.Header[accessIDHeader]
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"version":"9.2.2"}}`))
+	})
+	if _, err := c.Version(context.Background()); err != nil {
+		t.Fatalf("Version: %v", err)
+	}
+	if present {
+		t.Errorf("%s envoyé alors qu'aucun service token n'est configuré", accessIDHeader)
+	}
+}
+
+// Half a service token produces a 403 from Cloudflare that reads exactly like a
+// 403 from Proxmox. Refusing at New() is what keeps that hour from being lost.
+func TestNewRefusesAHalfConfiguredServiceToken(t *testing.T) {
+	_, err := New(Options{
+		Endpoint: "https://pve.example.com:8006",
+		TokenID:  "automation@pve!pvectl", Secret: "s3cr3t",
+		AccessClientID: "client-id",
+	})
+	if err == nil {
+		t.Fatal("New doit refuser un service token incomplet")
+	}
+	if !strings.Contains(err.Error(), "CF_ACCESS_CLIENT_SECRET") {
+		t.Errorf("l'erreur doit nommer la variable manquante, got: %v", err)
+	}
+}
+
+// The trace is the one place a secret can leave this package.
+func TestTraceRedactsTheAccessSecret(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "https://pve.example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "PVEAPIToken=automation@pve!pvectl=s3cr3t")
+	req.Header.Set(accessSecretHeader, "client-secret")
+
+	safe := redactedHeader(req, "automation@pve!pvectl")
+	if got := safe.Get(accessSecretHeader); strings.Contains(got, "client-secret") {
+		t.Errorf("%s = %q, le secret ne doit pas sortir du paquet", accessSecretHeader, got)
+	}
+	if strings.Contains(safe.Get("Authorization"), "s3cr3t") {
+		t.Error("le secret du token PVE ne doit pas sortir non plus")
+	}
+}
+
 // The {"data": …} envelope is unwrapped for the caller, using a real answer
 // captured from the lab node.
 func TestClientUnwrapsDataEnvelope(t *testing.T) {

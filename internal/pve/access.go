@@ -42,6 +42,89 @@ func (c *Client) Users(ctx context.Context) ([]User, error) {
 	return out, nil
 }
 
+// UserInfo reads one account.
+//
+// GET /access/users/{userid}
+func (c *Client) UserInfo(ctx context.Context, userID string) (*User, error) {
+	var out User
+	if err := c.get(ctx, epUser, []string{userID}, nil, &out); err != nil {
+		return nil, err
+	}
+	// The single-user endpoint answers the record WITHOUT its own userid: the
+	// caller asked for it, so PVE does not repeat it. Filling it back in keeps
+	// the post-read printable next to a listing.
+	if out.UserID == "" {
+		out.UserID = userID
+	}
+	return &out, nil
+}
+
+// UserOptions are the fields of a new account this CLI sets.
+//
+// The schema carries more (firstname, lastname, keys); they are left out until
+// something needs them, rather than exposed because they exist.
+type UserOptions struct {
+	Comment string
+	Email   string
+	Groups  string
+	// Password is optional for PVE: an account without one simply cannot log in
+	// through the web interface — which is a legitimate state for an identity
+	// that only ever carries API tokens.
+	Password string
+	// Expire is seconds since the epoch, 0 meaning "never".
+	Expire  int64
+	Disable bool
+}
+
+// Values renders the options as the payload that will be sent.
+func (o UserOptions) Values(userID string) url.Values {
+	v := url.Values{}
+	v.Set("userid", userID)
+	if o.Comment != "" {
+		v.Set("comment", o.Comment)
+	}
+	if o.Email != "" {
+		v.Set("email", o.Email)
+	}
+	if o.Groups != "" {
+		v.Set("groups", o.Groups)
+	}
+	if o.Password != "" {
+		v.Set("password", o.Password)
+	}
+	v.Set("expire", strconv.FormatInt(o.Expire, 10))
+	if o.Disable {
+		v.Set("enable", "0")
+	} else {
+		v.Set("enable", "1")
+	}
+	return v
+}
+
+// Redacted is Values with the password blanked, for the plan a --dry-run prints
+// and for the confirmation shown before writing. The payload displayed by this
+// project is the real one — except where showing it would put a secret on a
+// terminal, and in a scrollback.
+func (o UserOptions) Redacted(userID string) url.Values {
+	v := o.Values(userID)
+	if v.Get("password") != "" {
+		v.Set("password", "<redacted>")
+	}
+	return v
+}
+
+// CreateUser creates an account.
+//
+// POST /access/users — needs 'Realm.AllocateUser' on /access/realm/<realm> and
+// 'User.Modify' on /access/groups. Both are absent from PVEAuditor, so this is
+// a call an audit token cannot make, by design.
+func (c *Client) CreateUser(ctx context.Context, userID string, o UserOptions) error {
+	return c.post(ctx, epUserCreate, nil, o.Values(userID), nil)
+}
+
+// UserPath renders the user creation path, for --dry-run.
+func UserPath() string { return epUserCreate.Pattern }
+
 // Role is one entry of GET /access/roles.
 type Role struct {
 	RoleID string `json:"roleid"`

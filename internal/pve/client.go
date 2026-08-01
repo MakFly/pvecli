@@ -39,6 +39,12 @@ type Options struct {
 	// Trust selects how the server certificate is verified (PRD §7.3).
 	Trust TrustOptions
 
+	// AccessClientID and AccessClientSecret authenticate this client to a
+	// Cloudflare Access application placed in front of the node. Both or
+	// neither: half a service token is refused at New().
+	AccessClientID     string
+	AccessClientSecret string
+
 	// Trace, when set, receives every exchange. The client strips the
 	// Authorization header before handing it over: no secret ever leaves this
 	// package, whatever the tracer then does with the rest.
@@ -52,12 +58,14 @@ type Options struct {
 
 // Client talks to one Proxmox VE node.
 type Client struct {
-	base    *url.URL
-	tokenID string
-	secret  string
-	trust   TrustOptions
-	trace   Tracer
-	http    *http.Client
+	base         *url.URL
+	tokenID      string
+	secret       string
+	trust        TrustOptions
+	accessID     string
+	accessSecret string
+	trace        Tracer
+	http         *http.Client
 }
 
 // Tracer receives the details of each exchange. internal/log implements it.
@@ -105,6 +113,23 @@ func New(o Options) (*Client, error) {
 		}
 	}
 
+	// Half a service token is worse than none: Cloudflare answers 403 to a
+	// request it will not let through, and that 403 is indistinguishable from a
+	// Proxmox permission error — which is where the hunt then starts.
+	if (o.AccessClientID == "") != (o.AccessClientSecret == "") {
+		missing, present := "CF_ACCESS_CLIENT_SECRET", "CF_ACCESS_CLIENT_ID"
+		if o.AccessClientID == "" {
+			missing, present = present, missing
+		}
+		return nil, &AuthError{
+			Reason: "service token Cloudflare Access incomplet : " + present + " est défini, " + missing + " manque",
+			Hint: "Les deux vont ensemble. Avec un seul, Cloudflare refuse la requête\n" +
+				"par un 403 qui ressemble à un refus de Proxmox.\n\n" +
+				"  export " + missing + "=\"…\"\n\n" +
+				"Ou retire l'autre pour joindre le nœud directement, sans passer par Access.",
+		}
+	}
+
 	base, err := normalizeBase(o.Endpoint)
 	if err != nil {
 		return nil, err
@@ -127,12 +152,14 @@ func New(o Options) (*Client, error) {
 	}
 
 	return &Client{
-		base:    base,
-		tokenID: o.TokenID,
-		secret:  o.Secret,
-		trust:   o.Trust,
-		trace:   o.Trace,
-		http:    &http.Client{Timeout: timeout, Transport: transport},
+		base:         base,
+		tokenID:      o.TokenID,
+		secret:       o.Secret,
+		trust:        o.Trust,
+		accessID:     o.AccessClientID,
+		accessSecret: o.AccessClientSecret,
+		trace:        o.Trace,
+		http:         &http.Client{Timeout: timeout, Transport: transport},
 	}, nil
 }
 
@@ -300,10 +327,10 @@ func (c *Client) postMultipart(
 	req.Header.Set("Authorization", authHeader(c.tokenID, c.secret))
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", mw.FormDataContentType())
+	c.setAccessHeaders(req)
 
 	if c.trace != nil {
-		safe := req.Header.Clone()
-		safe.Set("Authorization", "PVEAPIToken="+c.tokenID+"=<redacted>")
+		safe := redactedHeader(req, c.tokenID)
 		// The body is a file: tracing it would dump an ISO onto the terminal.
 		c.trace.Request(req.Method, req.URL.String(), safe, []byte("<corps multipart, non tracé>"))
 	}
@@ -374,6 +401,7 @@ func (c *Client) exchange(ctx context.Context, method, path string, body url.Val
 	if body != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
+	c.setAccessHeaders(req)
 
 	c.traceRequest(req, body)
 
@@ -409,14 +437,44 @@ func (c *Client) exchange(ctx context.Context, method, path string, body url.Val
 // traceRequest hands the exchange to the tracer with the Authorization header
 // already replaced. The secret does not leave this package: redaction in
 // internal/log is a second line of defence, not the only one.
+// Header names of a Cloudflare Access service token. They are what lets a
+// non-browser client through an Access application: without them, Access
+// answers a redirect to its login page, and the CLI reports HTML where it
+// expected JSON.
+const (
+	accessIDHeader     = "CF-Access-Client-Id"
+	accessSecretHeader = "CF-Access-Client-Secret"
+)
+
+// setAccessHeaders presents the service token, when one is configured. Against
+// a node reached directly on the LAN there is none, and nothing is added.
+func (c *Client) setAccessHeaders(req *http.Request) {
+	if c.accessID == "" || c.accessSecret == "" {
+		return
+	}
+	req.Header.Set(accessIDHeader, c.accessID)
+	req.Header.Set(accessSecretHeader, c.accessSecret)
+}
+
+// redactedHeader is the only header map that ever leaves this package. Every
+// credential it can carry is masked here, in one place: a secret added to a
+// request and forgotten here would surface in the first --trace run.
+func redactedHeader(req *http.Request, tokenID string) http.Header {
+	safe := req.Header.Clone()
+	if safe.Get("Authorization") != "" {
+		safe.Set("Authorization", "PVEAPIToken="+tokenID+"=<redacted>")
+	}
+	if safe.Get(accessSecretHeader) != "" {
+		safe.Set(accessSecretHeader, "<redacted>")
+	}
+	return safe
+}
+
 func (c *Client) traceRequest(req *http.Request, body url.Values) {
 	if c.trace == nil {
 		return
 	}
-	safe := req.Header.Clone()
-	if safe.Get("Authorization") != "" {
-		safe.Set("Authorization", "PVEAPIToken="+c.tokenID+"=<redacted>")
-	}
+	safe := redactedHeader(req, c.tokenID)
 	var raw []byte
 	if body != nil {
 		raw = []byte(body.Encode())

@@ -1223,3 +1223,84 @@ sans que rien n'échoue.
 **Limite assumée** : une session Claude Code déjà ouverte ne voit pas un agent
 écrit après son démarrage. L'installation le dit ; l'agent n'a donc pas pu être
 exercé de bout en bout dans la session qui l'a écrit.
+
+---
+
+## 2026-08-01 — PVX-070 → PVX-073, ouvrir le lab à quelqu'un d'autre
+
+**Endpoints** — `POST /access/users` et `GET /access/users/{userid}` côté PVE,
+relevés par `search-pve-api.ts` ; `/accounts/{a}/access/apps`,
+`.../apps/{app}/policies` et `/accounts/{a}/access/service_tokens` côté
+Cloudflare, relevés sur la doc officielle. Aucun écrit de mémoire, comme
+toujours — et c'est ce qui a fait tomber la première hypothèse du lot.
+
+**Le rôle demandé n'existe pas.** La demande était « un `PVEVMUser` qui peut
+créer, modifier et supprimer ses propres VM ». Les deux moitiés sont fausses.
+Sur les rôles réels du nœud, `PVEVMUser` vaut `VM.Audit, VM.Backup,
+VM.Config.CDROM, VM.Config.Cloudinit, VM.Console, VM.GuestAgent.*,
+VM.PowerMgmt` : il démarre, arrête et ouvre la console, mais il n'a ni
+`VM.Allocate` — donc ni création ni destruction — ni les `VM.Config.CPU`,
+`Memory`, `Disk`, `Network` — donc aucun redimensionnement. Le rôle qui
+correspond à l'intention est `PVEVMAdmin`.
+
+**Et « ses propres VM » n'existe pas non plus.** Proxmox n'a aucune notion de
+propriétaire par VM. Le seul mécanisme d'isolation est le **pool** : `/pool/<id>`
+est un chemin d'ACL, et une VM qui y entre hérite des droits du pool sur son
+propre `/vms/{vmid}`.
+
+**Ce que le schéma dit, et qu'aucune documentation d'usage ne répète** :
+
+> You need 'VM.Allocate' permissions on /vms/{vmid} **or on the VM pool
+> /pool/{pool}**. If you create disks you need 'Datastore.AllocateSpace' on any
+> used storage. If you use a bridge/vlan, you need 'SDN.Use' on any used
+> bridge/vlan.
+
+Trois conséquences, dont une qui manquait au code. La création accepte le
+droit porté par le pool — mais seulement si l'appel **nomme** ce pool, puisque
+c'est `pool` qui désigne le chemin sur lequel PVE ira vérifier. Une identité
+bornée à un pool et qui appelle sans `--pool` reçoit donc un `403` sur une VM
+qu'elle a pourtant le droit de créer, et le refus, lu littéralement, dit
+l'inverse : qu'elle n'a pas le droit de créer. `pvecli vm create` n'avait pas
+ce paramètre ; il l'a, et le `403` sans `--pool` oriente désormais vers le pool
+plutôt que vers une ACL à élargir.
+
+Le `DELETE`, lui, vérifie `VM.Allocate` sur `/vms/{vmid}` et **non** sur le
+pool. Il fonctionne quand même pour un membre du pool — parce que l'ACL du pool
+porte sur ses membres. C'est le mécanisme, pas une tolérance, et la distinction
+compte : elle explique pourquoi retirer une VM d'un pool retire aussi le droit
+de la détruire.
+
+**Le piège le plus cher du lot ne produit aucune erreur.** Un service token
+placé dans une policy Cloudflare Access `allow` est accepté par l'API — et
+laisse passer **toutes** les requêtes, y compris celles qui ne présentent aucun
+token. `allow` veut dire « une identité s'est authentifiée » ; un service token
+n'en porte aucune. La décision correcte est `non_identity`, « Service Auth »
+dans le dashboard. Le symptôme d'une erreur ici est que tout fonctionne, pour
+n'importe qui. `Policy.Validate` refuse la combinaison, et le test qui le prouve
+est le seul du lot qui protège d'une faille plutôt que d'une panne.
+
+**Erreur commise — une option posée à la main ne survit pas.** L'interface
+Proxmox est en HTTPS avec un certificat auto-signé : sans
+`originRequest.noTLSVerify`, `cloudflared` refuse le certificat de l'origine et
+répond `502` alors que le tunnel est monté, le nom résout et Access laisse
+passer. La panne est au dernier saut, celui qu'on regarde en dernier. Le
+réflexe — poser la case dans le dashboard Cloudflare — ne tient pas : `cf route
+add` relit la table d'ingress, la modifie et la réécrit **entière**, donc toute
+clé absente des structs Go traverse le décodage sans être retenue et disparaît
+de *toutes* les règles au premier ajout suivant. Il a fallu modéliser le champ
+pour pouvoir le poser, et un test vérifie maintenant que les options d'une route
+survivent à l'écriture d'une autre.
+
+**Le tunnel expose, Access protège, et rien n'oblige à poser le second.** Ce
+sont deux objets indépendants côté Cloudflare. Tant que la porte se posait à la
+main, `cf route add` pouvait publier le formulaire de login de Proxmox sur
+l'internet ouvert sans un mot. Il interroge désormais les applications Access
+après avoir écrit la route et le dit quand le nom n'est couvert par aucune —
+c'est le seul moment où quelqu'un regarde. Le manuel du dépôt voisin le disait
+déjà en toutes lettres au chapitre 02 ; ce lot rend la règle exécutable.
+
+**Règle retenue** — quand une demande nomme un rôle, une décision ou un réglage
+précis, vérifier ce que ce nom **contient** avant de l'appliquer. `PVEVMUser` et
+`allow` décrivaient tous les deux l'inverse de l'intention, aucun des deux
+n'aurait produit d'erreur, et le second aurait ouvert l'hyperviseur à tout
+l'internet en ayant l'air correct.

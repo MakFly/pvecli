@@ -48,7 +48,7 @@ Le jeton n'est jamais accepté en argument : « ps » le rendrait visible à tou
 la machine.`,
 		Args: usage(cobra.NoArgs),
 	}
-	c.AddCommand(newCFStatusCmd(), newCFTunnelCmd(), newCFRouteCmd())
+	c.AddCommand(newCFStatusCmd(), newCFTunnelCmd(), newCFRouteCmd(), newCFAccessCmd())
 	return c
 }
 
@@ -381,11 +381,22 @@ rien signaler.`,
 
 func newCFRouteAddCmd() *cobra.Command {
 	var tunnelName, service string
+	var noTLSVerify bool
 
 	c := &cobra.Command{
 		Use:   "add <fqdn>",
 		Short: "Route un nom public vers un service du LAN",
-		Args:  usage(cobra.ExactArgs(1)),
+		Long: `Ajoute une règle d'ingress et pose le CNAME proxifié qui la rend joignable.
+
+  pvecli cf route add n8n.exemple.tld --tunnel homelab --service http://192.168.1.220:5678
+
+Une origine en HTTPS dont le certificat est auto-signé — l'interface Proxmox,
+par exemple — exige --no-tls-verify : sinon cloudflared refuse le certificat et
+répond 502, alors que le tunnel, lui, est bien monté.
+
+  pvecli cf route add pve.exemple.tld --tunnel homelab \
+      --service https://192.168.1.23:8006 --no-tls-verify`,
+		Args: usage(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fqdn := args[0]
 			if tunnelName == "" {
@@ -398,6 +409,17 @@ func newCFRouteAddCmd() *cobra.Command {
 			if !strings.Contains(service, "://") {
 				return &exitError{code: pve.ExitUsage,
 					msg: fmt.Sprintf("--service %q : il faut un schéma, ex. http://192.168.1.220:5678", service)}
+			}
+			// Accepting the flag on an http:// origin would write an option that
+			// does nothing, and leave the impression that TLS was dealt with.
+			if noTLSVerify && !strings.HasPrefix(service, "https://") {
+				return &exitError{code: pve.ExitUsage,
+					msg: fmt.Sprintf("--no-tls-verify ne s'applique qu'à une origine https:// — %q n'en est pas une", service)}
+			}
+
+			var origin *cf.OriginRequest
+			if noTLSVerify {
+				origin = &cf.OriginRequest{NoTLSVerify: true}
 			}
 
 			client, err := newCFClient(cmd)
@@ -425,6 +447,9 @@ func newCFRouteAddCmd() *cobra.Command {
 			_, _ = fmt.Fprintf(errW, "  tunnel   %s (%s)\n", tunnel.Name, tunnel.ID)
 			_, _ = fmt.Fprintf(errW, "  zone     %s\n", zone.Name)
 			_, _ = fmt.Fprintf(errW, "  ingress  %s → %s\n", fqdn, service)
+			if noTLSVerify {
+				_, _ = fmt.Fprintf(errW, "  origine  certificat NON vérifié (noTLSVerify)\n")
+			}
 			_, _ = fmt.Fprintf(errW, "  dns      %s CNAME %s (proxifié)\n", fqdn, tunnel.CNAME())
 
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
@@ -437,7 +462,7 @@ func newCFRouteAddCmd() *cobra.Command {
 				return err
 			}
 
-			cfg.AddRoute(fqdn, service)
+			cfg.AddRoute(fqdn, service, origin)
 			if err := client.SetTunnelConfig(ctx, tunnel.ID, cfg); err != nil {
 				return err
 			}
@@ -453,8 +478,16 @@ func newCFRouteAddCmd() *cobra.Command {
 			}
 			found := false
 			for _, r := range back.Ingress {
-				if r.Hostname == fqdn {
-					found = true
+				if r.Hostname != fqdn {
+					continue
+				}
+				found = true
+				// A rule that came back without the option would route to an
+				// origin cloudflared then refuses — a 502 with nothing in the
+				// table to explain it.
+				if noTLSVerify && !r.SkipsTLSVerify() {
+					return fmt.Errorf("la règle pour %s est revenue sans noTLSVerify : "+
+						"l'origine sera refusée pour son certificat", fqdn)
 				}
 			}
 			if !found {
@@ -462,11 +495,28 @@ func newCFRouteAddCmd() *cobra.Command {
 			}
 
 			_, _ = fmt.Fprintf(errW, "\nhttps://%s répondra dès que cloudflared tourne dans l'invité.\n", fqdn)
+
+			// A route makes the origin reachable from the internet. Whether
+			// anyone may reach it is a separate question, and this is the last
+			// moment anyone looks. Saying nothing here is how a Proxmox login
+			// form ends up published.
+			switch coverage := accessCoverage(cmd, client, fqdn); coverage {
+			case "":
+				_, _ = fmt.Fprintf(errW,
+					"\n⚠ AUCUNE application Cloudflare Access ne couvre « %s ».\n"+
+						"  Ce nom est ouvert à tout l'internet. Ferme-le :\n"+
+						"    pvecli cf access app create %s\n"+
+						"    pvecli cf access policy add --app %s --email <ton adresse>\n", fqdn, fqdn, fqdn)
+			default:
+				_, _ = fmt.Fprintf(errW, "Access : %s\n", coverage)
+			}
 			return renderIngress(cmd, back, record)
 		},
 	}
 	c.Flags().StringVar(&tunnelName, "tunnel", "", "nom du tunnel")
 	c.Flags().StringVar(&service, "service", "", "service du LAN, ex. http://192.168.1.220:5678")
+	c.Flags().BoolVar(&noTLSVerify, "no-tls-verify", false,
+		"accepte le certificat de l'origine sans le vérifier — pour une origine https auto-signée, comme l'interface Proxmox")
 	addWriteFlags(c)
 	addRenderFlags(c)
 	return c
@@ -589,13 +639,19 @@ func newCFRouteRemoveCmd() *cobra.Command {
 }
 
 func renderIngress(cmd *cobra.Command, cfg cf.Config, record cf.Record) error {
-	rows := output.Rows{Headers: []string{"NOM PUBLIC", "SERVICE"}}
+	rows := output.Rows{Headers: []string{"NOM PUBLIC", "SERVICE", "ORIGINE"}}
 	for _, r := range cfg.Ingress {
 		name := r.Hostname
 		if r.IsCatchAll() {
 			name = "(tout le reste)"
 		}
-		rows.Cells = append(rows.Cells, []string{name, r.Service})
+		// An unverified origin is a property of the route, not a detail: a table
+		// that does not show it describes a routing that is not the one in place.
+		origin := ""
+		if r.SkipsTLSVerify() {
+			origin = "TLS non vérifié"
+		}
+		rows.Cells = append(rows.Cells, []string{name, r.Service, origin})
 	}
 	opts, err := renderOptions(cmd)
 	if err != nil {

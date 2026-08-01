@@ -37,6 +37,8 @@ var (
 	epClusterRes  = endpoint{"GET", "/cluster/resources"}
 
 	epUsers       = endpoint{"GET", "/access/users"}
+	epUserCreate  = endpoint{"POST", "/access/users"}
+	epUser        = endpoint{"GET", "/access/users/{userid}"}
 	epRoles       = endpoint{"GET", "/access/roles"}
 	epRole        = endpoint{"GET", "/access/roles/{roleid}"}
 	epACL         = endpoint{"GET", "/access/acl"}
@@ -114,6 +116,8 @@ var AllEndpoints = []endpoint{
 	epPermissions,
 	epClusterRes,
 	epUsers,
+	epUserCreate,
+	epUser,
 	epRoles,
 	epRole,
 	epACL,

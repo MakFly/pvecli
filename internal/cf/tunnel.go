@@ -112,11 +112,30 @@ func (c *Client) TunnelToken(ctx context.Context, id string) (string, error) {
 	return token, nil
 }
 
+// OriginRequest holds the per-rule options cloudflared applies when it dials
+// the origin. Only the fields this client sets are modelled: the PUT replaces
+// the whole table, so a key absent from this struct is a key dropped from every
+// rule the next time a route is written.
+type OriginRequest struct {
+	// NoTLSVerify makes the connector accept the origin's certificate without
+	// checking it. Proxmox serves its API under a self-signed certificate, so
+	// without this the tunnel comes up and every request answers 502 — the
+	// failure is at the origin hop, which is the last place one thinks to look.
+	NoTLSVerify bool `json:"noTLSVerify,omitempty"`
+}
+
 // IngressRule is one line of the routing table.
 type IngressRule struct {
-	Hostname string `json:"hostname,omitempty"`
-	Path     string `json:"path,omitempty"`
-	Service  string `json:"service"`
+	Hostname      string         `json:"hostname,omitempty"`
+	Path          string         `json:"path,omitempty"`
+	Service       string         `json:"service"`
+	OriginRequest *OriginRequest `json:"originRequest,omitempty"`
+}
+
+// SkipsTLSVerify reports whether this rule accepts an unverified origin, for
+// the commands that have to say so in their output.
+func (r IngressRule) SkipsTLSVerify() bool {
+	return r.OriginRequest != nil && r.OriginRequest.NoTLSVerify
 }
 
 // IsCatchAll reports whether this is the terminal rule.
@@ -192,10 +211,13 @@ func (cfg Config) Validate() error {
 }
 
 // AddRoute points a hostname at a local service, replacing any rule that
-// already claimed that hostname.
-func (cfg *Config) AddRoute(hostname, service string) {
+// already claimed that hostname. A nil origin leaves the rule with cloudflared's
+// defaults, which is what every origin that presents a real certificate wants.
+func (cfg *Config) AddRoute(hostname, service string, origin *OriginRequest) {
 	cfg.RemoveRoute(hostname)
-	cfg.Ingress = append(cfg.Ingress, IngressRule{Hostname: hostname, Service: service})
+	cfg.Ingress = append(cfg.Ingress, IngressRule{
+		Hostname: hostname, Service: service, OriginRequest: origin,
+	})
 	cfg.Normalise()
 }
 

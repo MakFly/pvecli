@@ -51,11 +51,28 @@ resource "proxmox_virtual_environment_vm" "pvecli" {
     full  = true
   }
 
+  # « host » expose les vrais drapeaux du processeur du nœud. Le défaut du
+  # provider (kvm64) n'annonce ni AVX ni AVX2, et un runtime moderne compilé
+  # pour un x86-64-v3 ne le découvre qu'à l'exécution : Bun meurt en
+  # « Illegal instruction (core dumped) » au milieu d'un build, sans un mot sur
+  # le processeur. Le prix est la migration à chaud entre nœuds hétérogènes,
+  # que ce lab n'utilise pas.
   cpu {
     cores = each.value.cores
+    type  = "host"
   }
+  # `floating` (le paramètre `balloon` de PVE) pose le périphérique
+  # virtio-balloon et fixe le plancher sous lequel l'hôte ne redescendra pas.
+  # Sans lui, l'hôte ne reprend JAMAIS une page que l'invité a touchée une fois :
+  # la jauge Proxmox ne fait que monter — 11,7 Gio affichés pour 2 Gio réellement
+  # tenus, le reste étant du cache que le noyau invité rendrait volontiers.
+  # La moitié comme plancher : l'invité garde sa RAM tant que le nœud n'en a pas
+  # besoin, et n'en rend que sous pression. Une VM qui ne doit jamais rendre un
+  # octet (base de données à shared_buffers dimensionnés) veut un plancher égal
+  # à `dedicated`.
   memory {
     dedicated = each.value.memory
+    floating  = floor(each.value.memory / 2)
   }
 
   # Sans l'agent, Terraform attend une adresse que personne ne peut donner :

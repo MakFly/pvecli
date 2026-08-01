@@ -438,6 +438,33 @@ node          pve                        (fichier)
 token_secret  <défini>                   (env PVE_API_TOKEN_SECRET)
 ```
 
+### Reaching a node published behind Cloudflare Access
+
+A tunnel can publish the Proxmox interface itself, not just a service in a
+guest — the origin then needs `--no-tls-verify`, because PVE serves its API
+under a self-signed certificate:
+
+```sh
+pvecli cf route add pve.example.com --tunnel lab-pve \
+    --service https://192.168.1.23:8006 --no-tls-verify
+```
+
+Put a Cloudflare Access application in front of that hostname and the browser
+gets a login screen. A CLI does not: Access turns away anything that is not a
+browser, so `pvecli` presents a **service token**, from the environment only:
+
+```sh
+export PVE_API_URL="https://pve.example.com"
+export CF_ACCESS_CLIENT_ID="…"
+export CF_ACCESS_CLIENT_SECRET="…"
+```
+
+Both or neither — half a service token is refused before a socket is opened,
+because Cloudflare would answer it with a 403 indistinguishable from a Proxmox
+permission error. Through the tunnel the certificate is Cloudflare's, publicly
+valid: **no `tls.fingerprint`, and no `--insecure`**. The pinned fingerprint of
+the node is only meaningful on the LAN.
+
 ## Development
 
 ```sh
