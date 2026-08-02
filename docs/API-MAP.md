@@ -75,6 +75,11 @@ de PVE **9.x** (le lab tourne en 9.2.2, pas en 8.x) ou via
 | `/nodes/{node}/network` | PUT | `pvecli net apply` | PVX-049 | 2026-07-31 | `PVE::API2::Network::reload_network_config` (ligne 885 : `Sys.Modify`, ligne 903 : renvoie un UPID) |
 | `/nodes/{node}/network` | DELETE | `pvecli net revert` | PVX-049 | 2026-07-31 | `PVE::API2::Network::revert_network_changes` ligne 511 (`unlink /etc/network/interfaces.new`) |
 | `/nodes/{node}/vzdump` | POST | `pvecli backup run` | PVX-037 | 2026-07-31 | `pvesh usage /nodes/pve/vzdump -v` + `PVE::API2::VZDump` (privilèges) |
+| `/cluster/backup` | GET | `pvecli backup job ls` | PVX-076 | 2026-08-02 | `search-pve-api.ts "/cluster/backup"` — endpoint de **cluster**, pas de nœud : la définition vit dans `/etc/pve/jobs.cfg` et `node` n'y est qu'un filtre d'exécution. Lecture : `Sys.Audit` sur `/` |
+| `/cluster/backup` | POST | `pvecli backup job create` | PVX-076 | 2026-08-02 | `search-pve-api.ts "/cluster/backup"` — `id` est **optionnel** (généré par PVE) et la réponse ne le rend pas : la création se vérifie en relisant la liste. `Sys.Modify` sur `/` ; `dumpdir`/`tmpdir`/`script` sont en plus réservés à `root@pam` |
+| `/cluster/backup/{id}` | GET | `pvecli backup job show` | PVX-076 | 2026-08-02 | `search-pve-api.ts "/cluster/backup"` — rend `next-run` (epoch), la seule preuve que le planificateur a retenu le `schedule` |
+| `/cluster/backup/{id}` | PUT | `pvecli backup job set` | PVX-076 | 2026-08-02 | `search-pve-api.ts "/cluster/backup"` — PUT **partiel** : seules les clés envoyées changent. `Sys.Modify` sur `/` |
+| `/cluster/backup/{id}` | DELETE | `pvecli backup job rm` | PVX-076 | 2026-08-02 | `search-pve-api.ts "/cluster/backup"` — supprime la **définition**, pas les archives déjà écrites. `Sys.Modify` sur `/` |
 | `/nodes/{node}/tasks` | GET | `pvecli task ls` | PVX-015 | 2026-07-31 | `pvesh get /nodes/pve/tasks` |
 | `/nodes/{node}/tasks/{upid}/status` | GET | `pvecli task show` | PVX-015 | 2026-07-31 | `pvesh usage` sur le nœud |
 | `/nodes/{node}/tasks/{upid}/log` | GET | `pvecli task log` | PVX-015 | 2026-07-31 | `pvesh usage` sur le nœud |
@@ -138,6 +143,17 @@ Authorization: PVEAPIToken=<user>@<realm>!<tokenname>=<secret>
 | `compress` (vzdump) | `0` veut dire **aucune compression**, pas « niveau zéro ». Les autres valeurs sont des noms d'algorithmes (`zstd`, `gzip`, `lzo`), pas des niveaux |
 | restauration | **il n'existe pas d'endpoint « restore »** : c'est `POST /nodes/{n}/qemu` (ou `/lxc`) avec `archive=<volid>`. Le schéma conditionne explicitement `force` à la présence d'`archive` |
 | `bwlimit`, `ionice`, `performance` (vzdump) | exigent `Sys.Modify` sur `/` — un token de moindre privilège ne peut pas les passer |
+| `prune-backups` (job) | option string `keep-last=3,keep-daily=7`. Elle **remplace** la rétention du stockage, elle ne s'y ajoute pas. Défaut du schéma : `keep-all=1`, c'est-à-dire **rien ne purge** — un job planifié sans rétention remplit le stockage jusqu'à la panne. `pvecli backup job create` l'exige donc |
+| `remove` + `prune-backups` (job) | les deux ne valent rien l'un sans l'autre : `remove=1` sans `prune-backups` applique une politique qu'on n'a pas écrite, `prune-backups` sans `remove` n'a **aucun effet**. `remove` est **rendu par le GET** : une politique désarmée s'affiche sinon comme une politique normale |
+| `prune-backups` est **une** valeur | pas six champs. Un `PUT` qui n'envoie que le compteur modifié **efface les autres** — et la purge suivante supprime des archives non visées. `backup job set` relit et fusionne |
+| `delete` (`PUT /cluster/backup/{id}`) | c'est par là qu'on **vide** une clé. Envoyer une valeur vide sur un champ typé (`all=`, `node=`) échoue en 400 (`type check ('boolean') failed`) |
+| cible d'un job (`PUT`) | envoyer `vmid`, `pool` **ou** `all` suffit : `PVE::API2::Backup::update_job` efface les deux autres avant `verify_vzdump_parameters` |
+| `enabled` (job) | déclaré à **1 par défaut** : son absence dans une réponse ne veut pas dire « désactivé ». Le décoder en `int` nu ferait afficher « inactif » sur un job qui tourne |
+| `vmid` (job) | une **liste CSV** (`220,221`), pas un entier — contrairement au `{vmid}` de tous les chemins de guest |
+| `all` / `pool` / `vmid` (job) | trois cibles **exclusives**, et `all` écrase les deux autres côté nœud. `exclude` suppose `all` |
+| `next-run` (job) | epoch en secondes, **absent quand le nœud n'a pas retenu le `schedule`**. C'est la seule preuve qu'une planification est vivante : un job mal planifié a exactement la même tête qu'un job sain dans une liste de noms |
+| `id` (`POST /cluster/backup`) | **optionnel** — PVE en génère un — et la réponse ne le rend pas. Savoir lequel vient d'être créé impose de relire `/cluster/backup` |
+| `mailnotification`, `mailto` (job) | déclarés **dépréciés** par le schéma 9.x au profit des cibles/matchers de notification. Exposés par `pvecli` mais jamais envoyés par défaut |
 | `pool` (`POST /nodes/{n}/qemu`) | le schéma le donne pour optionnel, et il ne l'est pas pour tout le monde : la création exige `VM.Allocate` sur `/vms/{vmid}` **ou sur `/pool/{pool}`**. Une identité dont le droit tient au pool ne peut créer qu'en le nommant. Le même appel réclame en plus `Datastore.AllocateSpace` sur le stockage et `SDN.Use` sur le pont |
 | `DELETE /nodes/{n}/qemu/{vmid}` | vérifie `VM.Allocate` sur **`/vms/{vmid}`**, pas sur le pool. La destruction ne marche pour un membre de pool que parce que l'ACL du pool porte sur les VM qu'il contient — c'est le mécanisme, pas une tolérance |
 

@@ -382,6 +382,31 @@ the storage, not the task's `exitstatus`. `restore` never overwrites a live
 guest, because restoring over the original destroys the thing the backup was
 meant to protect before anyone has checked the archive is any good.
 
+But an on-demand backup only proves someone was there to launch it. The backup
+that will actually exist on the day of the failure is the *scheduled* one — and
+it is also the only one whose failure is silent:
+
+```sh
+pvecli backup job ls                       # ← empty means: RPO infinite, cluster-wide
+pvecli backup job create --vmid 220,221 --storage pbs-infra \
+    --schedule '02:30' --keep-last 3 --keep-daily 7
+pvecli backup job set  vzdump-abc --enabled=false   # suspend, don't delete
+pvecli backup job rm   vzdump-abc                   # retype the id to confirm
+```
+
+Three guards that are not in the API. `create` **requires** a retention: the
+schema's default is `keep-all=1`, so a job left alone writes forever and fills
+the storage — causing the very disk failure the backup existed to absorb. `ls`
+shows the **next run**, because a schedule the node did not parse looks exactly
+like a healthy job in a list of names. And `set` **merges** the retention
+instead of replacing it: `prune-backups` is a single value API-side, so sending
+only the counter you just changed would erase the others — and the next run
+would delete archives nobody asked to delete.
+
+The listing also reads `remove`, the switch that arms the retention. A policy
+written but disarmed shows up as `keep-last=3 (INERTE : remove=0)` rather than
+as a policy, because the reassuring version of that line is the dangerous one.
+
 A `403` is an information, not an obstacle:
 
 ```sh

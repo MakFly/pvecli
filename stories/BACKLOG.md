@@ -5,6 +5,112 @@
 
 ---
 
+### PVX-076 — Jobs de sauvegarde PLANIFIÉS (`/cluster/backup`)
+
+**Taille** M · **Type** ⚙ · **Statut** ✅ livré — 2026-08-02
+
+En tant qu'opérateur, je veux gérer les sauvegardes **récurrentes** depuis
+pvecli, parce que `backup run` (PVX-037) ne prouve qu'une chose : qu'on était là
+pour la lancer. La sauvegarde qui existera le jour de la panne est la planifiée.
+
+**Le trou constaté** — post-mortem infra : aucune sauvegarde planifiée sur le
+nœud. `pvecli backup` n'exposait que `run|ls|restore` ; `/cluster/backup` n'était
+couvert par aucun endpoint, donc aucune planification n'était pilotable.
+
+**Livré** : `internal/pve/backupjob.go` + `cmd/backup_job.go`.
+- `pvecli backup job ls|show|create|set|rm` (`update` alias de `set`).
+- 5 endpoints ajoutés à `endpoints.go` et à `docs/API-MAP.md`.
+
+**Nommage** — `backup job <verbe>` : `backup` est la famille existante, « job »
+est le mot de PVE lui-même (« vzdump backup job »), et `ls|show|create|set|rm`
+sont les verbes déjà en place ailleurs (`access token`, `vm snapshot`,
+`fw ipset`). `set` plutôt qu'`update` par cohérence avec `vm set` et
+`access acl set` — c'est la même opération, écrire des champs sur un objet
+existant ; `update` reste accepté en alias.
+
+**Six pièges du schéma, gérés — chacun couvert par un test :**
+1. **`prune-backups` vaut `keep-all=1` par défaut**, c'est-à-dire *rien ne
+   purge*. Un job planifié sans rétention remplit le stockage jusqu'à la panne
+   de disque que la sauvegarde existait pour absorber. `create` **exige** donc
+   au moins un `--keep-*`, contrairement à l'API.
+2. **`prune-backups` est UNE valeur, pas six champs.** C'est le piège le plus
+   coûteux, et il a failli passer : un `set --keep-last 5` qui n'envoie que ce
+   compteur **efface `keep-daily=7`**, et la prochaine exécution supprime des
+   archives que personne n'avait demandé de supprimer. `set` relit donc la
+   rétention du nœud et ne surcharge que les `--keep-*` reçus (read-merge-write),
+   et le plan affiche la politique complète.
+3. **`remove` est l'interrupteur de la rétention, et il est RENDU par le GET.**
+   Une politique écrite mais désarmée par `remove=0` ne purge rien tout en
+   rassurant. `BackupJob.Remove` est donc décodé, `ls`/`show` affichent
+   « keep-last=3 (INERTE : remove=0) », et `set` **refuse** de modifier une
+   rétention inerte sans un `--prune` explicite — le rallumer en douce
+   supprimerait des archives sans que rien ne l'annonce.
+4. **`enabled` absent veut dire ACTIF** (défaut 1). Le décoder en `int` nu
+   afficherait « désactivé » sur un job qui tourne toutes les nuits — d'où le
+   `*flexInt` et `IsEnabled()`. Même traitement pour `remove`.
+5. **`id` est optionnel et le POST ne le rend pas.** Savoir lequel vient d'être
+   créé impose de relire `/cluster/backup` : c'est ce que fait le post-read.
+6. **Vider un champ ≠ envoyer une valeur vide.** `Values()` omet les clés à leur
+   valeur nulle, donc `--all=false` aurait envoyé `all=` — que le nœud refuse
+   (« type check ('boolean') failed »). Les effacements passent par le paramètre
+   `delete` du PUT. `--schedule ''` et `--storage ''` sont en revanche refusés :
+   ils produiraient un job d'apparence normale et parfaitement inutile.
+
+**Trois garde-fous propres à la CLI** — `set` n'envoie que les drapeaux
+explicitement passés hors rétention (un PUT complet remettrait la compression
+aux défauts de la CLI sur un job qu'on voulait seulement replanifier) ; `rm` est
+marqué `Destructive`, donc la confirmation exige de **retaper l'identifiant**, et
+l'aide renvoie vers `set --enabled=false`, réversible, qui est presque toujours
+ce qu'on voulait ; un `--dry-run` **n'écrit rien sur stdout**, parce que le
+pipeline y rend l'état *avant* écriture et que le rendre comme un résultat
+ferait lire une fiction à un `-o json | jq`.
+
+**Changer la CIBLE d'un job (`--vmid` / `--pool` / `--all`) fonctionne** : les
+trois clés coexistent dans le fichier de jobs, mais `PVE::API2::Backup::update_job`
+efface les deux autres côté nœud avant validation. Il suffit donc d'envoyer
+celle qu'on veut. *(Vérifié dans le source du nœud, pas contre un nœud vivant.)*
+
+**Non vérifié en live** — le secret du token n'était pas disponible sur le poste
+au moment du développement, et le nœud n'était pas joignable en SSH. Validé par
+build, `go vet`, `go test ./...`, seuil de couverture, et l'aide des nouvelles
+commandes. Les fixtures `testdata/backup-job{,s}.json` sont **dérivées du
+schéma**, pas capturées : à remplacer par une vraie capture (`make capture
+ENDPOINT=/cluster/backup`) dès que le token est rétabli.
+
+**Ce que ça doit t'apprendre** — Qu'un défaut d'API peut être un piège de
+production. `keep-all=1` est un défaut « sûr » du point de vue de PVE (il ne
+supprime rien) et catastrophique du point de vue de l'exploitant (il ne
+supprime *jamais* rien). Un bon défaut dépend de ce qu'on protège.
+
+---
+
+### PVX-077 — `access role create` : accorder un privilège sans tout donner
+
+**Taille** S · **Type** ⚙ · **Statut** 🔎 identifié — 2026-08-02
+
+Découvert en documentant PVX-076. Les écritures sur `/cluster/backup` exigent
+**`Sys.Modify` sur `/`**. Or une ACL accorde un **rôle**, pas un privilège — et
+dans les rôles intégrés du nœud (`testdata/roles.json`, capture réelle), **le
+seul qui porte `Sys.Modify` est `Administrator`**. Le donner sur `/`, c'est
+`root@pam` sous un autre nom, ce que `access acl set` refuse à juste titre sans
+`--i-know-what-im-doing`.
+
+La sortie propre est un **rôle sur mesure** ne portant que ce qu'il faut. Elle
+passe par `POST /access/roles`, que pvecli n'expose pas : `access role` est en
+lecture seule (`ls|show`). Conséquence pratique : accorder proprement le droit
+de gérer les jobs de sauvegarde à un token de moindre privilège **oblige
+aujourd'hui à sortir de pvecli** (`pveum role add … -privs "Sys.Audit,Sys.Modify"`
+sur le nœud), ce qui contredit l'ADN de l'outil.
+
+**Critères d'acceptation** *(à figer)*
+- `pvecli access role create <roleid> --privs Sys.Audit,Sys.Modify`, et le `rm`
+  correspondant.
+- L'aide dit lesquels des privilèges demandés l'appelant ne détient pas — PVE
+  refuse de créer un rôle plus puissant que soi (même règle qu'`ACL.pm`).
+- `docs/API-MAP.md` : `POST` et `DELETE /access/roles/{roleid}`.
+
+---
+
 ### PVX-075 — Firewall PVE d'un conteneur
 
 **Taille** M · **Type** ⚙ · **Statut** ✅ livré (guest + IPSet) — 2026-08-01
