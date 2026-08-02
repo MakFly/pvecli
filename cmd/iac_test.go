@@ -122,14 +122,24 @@ func TestInventoryTagFilter(t *testing.T) {
 	srv := testutil.New(t, "../testdata", inventoryRoutes())
 	point(t, srv.URL)
 
-	stdout, stderr, err := run(t, "iac", "inventory", "--node", "pve", "--tag", "pvecli")
+	stdout, stderr, err := run(t, "iac", "inventory", "--node", "pve", "--tag", "lxc")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Only the container carries « pvecli »; it is filtered in, then excluded
-	// for being stopped — so the document is empty and says so.
+	// « lxc » n'est porté que par le conteneur 120 de la fixture (les qemu
+	// portent « lab » et « template;debian13 »). Il est donc filtré-in, puis
+	// exclu parce qu'il est arrêté : le document est vide et le dit.
+	//
+	// L'exclusion nommée sur stderr est ce qui PROUVE le filtrage-in : sans
+	// elle, un inventaire vide satisferait aussi un filtre sur-exclusif qui
+	// n'aurait rien retenu du tout.
 	if strings.Contains(stdout, "lab-app-01") {
-		t.Errorf("--tag pvecli ne doit pas retenir lab-app-01 :\n%s", stdout)
+		t.Errorf("--tag lxc ne doit pas retenir lab-app-01 :\n%s", stdout)
+	}
+	for _, want := range []string{"exclu 120 (web)", "arrêté"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("le 120 doit être filtré-in puis exclu, et stderr doit le dire (%q absent) :\n%s", want, stderr)
+		}
 	}
 	if !strings.Contains(stderr, "aucun hôte") {
 		t.Errorf("un inventaire vide doit le dire :\n%s", stderr)
@@ -287,6 +297,7 @@ func TestLXCStaticIPv4ReadsTheConfigurationAndRefusesToGuess(t *testing.T) {
 		cfg        pve.GuestConfig
 		wantIP     string
 		wantReason []string // substrings the exclusion must contain
+		denyReason []string // substrings it must NOT contain, to discriminate the motives
 	}{
 		{
 			name:   "une IPv4 statique : le masque ne va pas dans ansible_host",
@@ -334,7 +345,34 @@ func TestLXCStaticIPv4ReadsTheConfigurationAndRefusesToGuess(t *testing.T) {
 		{
 			name:       "une valeur qui ne parse pas n'est pas propagée",
 			cfg:        pve.GuestConfig{"net0": "name=eth0,bridge=vmbr0,ip=pas-une-adresse"},
-			wantReason: []string{"net0"},
+			wantReason: []string{"illisible", "net0 ip=pas-une-adresse"},
+			denyReason: []string{"bail", "IPv6"},
+		},
+		{
+			name:       "une IPv4 illisible avec une IPv6 valide n'est pas « seulement de l'IPv6 »",
+			cfg:        pve.GuestConfig{"net0": "name=eth0,bridge=vmbr0,ip=pas-une-adresse,ip6=2001:db8::1/64"},
+			wantReason: []string{"illisible", "net0 ip=pas-une-adresse"},
+			denyReason: []string{"bail", "seulement une IPv6"},
+		},
+		// Ces trois-là parsent en IPv4 et ne joignent pourtant pas le conteneur :
+		// « ssh 0.0.0.0 » atteint la machine qui lance pvecli.
+		{
+			name:       "la loopback ne désigne pas le conteneur",
+			cfg:        pve.GuestConfig{"net0": "name=eth0,bridge=vmbr0,ip=127.0.0.1/8"},
+			wantReason: []string{"inutilisable pour joindre", "net0 ip=127.0.0.1/8"},
+			denyReason: []string{"bail", "illisible"},
+		},
+		{
+			name:       "l'adresse non spécifiée non plus",
+			cfg:        pve.GuestConfig{"net0": "name=eth0,bridge=vmbr0,ip=0.0.0.0/0"},
+			wantReason: []string{"inutilisable pour joindre", "net0 ip=0.0.0.0/0"},
+			denyReason: []string{"bail", "illisible"},
+		},
+		{
+			name:       "le lien-local ne survit pas au premier saut",
+			cfg:        pve.GuestConfig{"net0": "name=eth0,bridge=vmbr0,ip=169.254.1.5/16"},
+			wantReason: []string{"inutilisable pour joindre", "net0 ip=169.254.1.5/16"},
+			denyReason: []string{"bail", "illisible"},
 		},
 	}
 
@@ -359,6 +397,11 @@ func TestLXCStaticIPv4ReadsTheConfigurationAndRefusesToGuess(t *testing.T) {
 			for _, want := range tc.wantReason {
 				if !strings.Contains(reason, want) {
 					t.Errorf("le motif doit dire ce qui a été lu (%q absent) : %s", want, reason)
+				}
+			}
+			for _, deny := range tc.denyReason {
+				if strings.Contains(reason, deny) {
+					t.Errorf("le motif raconte autre chose que ce qui a été lu (%q présent) : %s", deny, reason)
 				}
 			}
 		})
