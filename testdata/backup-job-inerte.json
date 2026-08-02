@@ -1,0 +1,1 @@
+{"data":{"id":"vzdump-inerte","type":"vzdump","schedule":"daily","storage":"local","vmid":"220","mode":"snapshot","enabled":1,"prune-backups":"keep-last=3,keep-daily=7","remove":0,"next-run":1785000000}}

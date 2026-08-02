@@ -1,0 +1,1 @@
+{"data":[{"id":"vzdump-critique","type":"vzdump","schedule":"02:30","storage":"pbs-infra","vmid":"220,221","mode":"snapshot","compress":"zstd","enabled":1,"prune-backups":"keep-last=3,keep-daily=7","next-run":1785000000,"comment":"app-01 + infra"},{"id":"vzdump-sans-retention","type":"vzdump","schedule":"daily","storage":"local","all":1,"mode":"snapshot","next-run":1785003600}]}

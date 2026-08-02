@@ -127,6 +127,17 @@ var (
 
 	epVZDump = endpoint{"POST", "/nodes/{node}/vzdump"}
 
+	// Les jobs de sauvegarde PLANIFIÉS. Ils vivent au niveau CLUSTER, pas au
+	// niveau nœud, contrairement au vzdump ponctuel juste au-dessus : la
+	// définition est répliquée dans /etc/pve, et « node » n'y est qu'un filtre
+	// d'exécution. Lecture = Sys.Audit sur /, écriture = Sys.Modify sur /.
+	// Voir internal/pve/backupjob.go.
+	epBackupJobs   = endpoint{"GET", "/cluster/backup"}
+	epBackupJobNew = endpoint{"POST", "/cluster/backup"}
+	epBackupJob    = endpoint{"GET", "/cluster/backup/{id}"}
+	epBackupJobSet = endpoint{"PUT", "/cluster/backup/{id}"}
+	epBackupJobDel = endpoint{"DELETE", "/cluster/backup/{id}"}
+
 	epTasks      = endpoint{"GET", "/nodes/{node}/tasks"}
 	epTaskStatus = endpoint{"GET", "/nodes/{node}/tasks/{upid}/status"}
 	epTaskLog    = endpoint{"GET", "/nodes/{node}/tasks/{upid}/log"}
@@ -211,6 +222,11 @@ var AllEndpoints = []endpoint{
 	epNetworkApply,
 	epNetworkRevert,
 	epVZDump,
+	epBackupJobs,
+	epBackupJobNew,
+	epBackupJob,
+	epBackupJobSet,
+	epBackupJobDel,
 	epTasks,
 	epTaskStatus,
 	epTaskLog,

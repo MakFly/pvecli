@@ -28,7 +28,7 @@ Et une sauvegarde n'est validée que par une restauration réellement testée. U
 « exitstatus OK » sur un vzdump ne prouve rien du contenu de l'archive.`,
 		Args: usage(cobra.NoArgs),
 	}
-	c.AddCommand(newBackupRunCmd(), newBackupListCmd(), newBackupRestoreCmd())
+	c.AddCommand(newBackupRunCmd(), newBackupListCmd(), newBackupRestoreCmd(), newBackupJobCmd())
 	return c
 }
 
