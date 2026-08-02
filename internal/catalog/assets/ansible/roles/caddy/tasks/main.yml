@@ -77,6 +77,27 @@
     validate: "caddy validate --adapter caddyfile --config %s"
   notify: Recharger Caddy
 
+# Cette tâche vient AVANT toute tâche capable de démarrer ou redémarrer le
+# proxy, et c'est délibéré. Le `validate` de la tâche précédente n'est joué
+# par le module `template` que si le contenu rendu diffère de celui sur
+# disque (ansible/modules/copy.py : `if checksum_src != checksum_dest ... if
+# validate:`) : sur un hôte déjà convergé il ne tourne pas du tout. Or ce qui
+# pourrit réellement, ce n'est pas le Caddyfile — c'est conf.d/, écrit par
+# les déploiements de projets, hors de ce rôle. Scénario réel : un run écrit
+# le Caddyfile puis est interrompu avant son handler (coupure SSH), un projet
+# dépose ensuite un fragment cassé, et au run suivant le template est
+# inchangé donc non validé. Si un restart pouvait se produire à ce moment,
+# Caddy relirait le disque, refuserait le fragment et ne redémarrerait pas :
+# le proxy partagé de tout le labo tomberait. En plaçant la revalidation ici,
+# un échec arrête le play AVANT le démarrage, avant la sonde et avant les
+# handlers — la garantie « rien ne touche au proxy tant que la configuration
+# entière, fragments compris, n'a pas été validée » devient structurelle et
+# ne dépend plus de l'état d'arrivée de l'hôte.
+- name: Revalider la configuration complète, fragments compris
+  ansible.builtin.command:
+    cmd: caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
+  changed_when: false
+
 - name: Démarrer Caddy au boot
   ansible.builtin.systemd_service:
     name: caddy
@@ -89,46 +110,45 @@
 # admin. Or `caddy reload` est lui-même un client de l'API admin : il ne peut
 # jamais être ce qui *crée* le point d'entrée dont il a besoin pour parler à
 # l'instance. La seule question qui compte est donc : cette instance
-# répond-elle sur l'admin API, oui ou non ? Le restart n'a lieu que si la
-# sonde échoue : c'est le seul cas qui prouve que l'instance tourne encore
-# sous l'ancien `admin off`. Ce n'est délibérément PAS un « reload, et si ça
-# échoue on restart » : un reload échoue aussi quand un fragment de projet
-# est syntaxiquement valide mais sémantiquement refusé par Caddy, et
-# redémarrer dans ce cas couperait les connexions de tous les projets pour,
-# au final, échouer quand même. La sonde distingue « je ne peux pas parler à
-# l'instance » de « l'instance a refusé cette config » — seul le premier cas
-# justifie un restart. Le coût de la transition `admin off` → `admin
-# 127.0.0.1:2019` est donc payé une seule fois, ici, plutôt que de rester une
-# manip manuelle que personne ne pense à refaire : au run suivant la sonde
-# trouve le socket et cette tâche ne change rien, ce qui garde
-# `--idempotence` à `changed=0`. La sonde ne cible que `127.0.0.1` parce que
-# le Caddyfile fixe l'endpoint là : mesuré sur edge-01, l'admin API ne
-# bindait que la loopback IPv4 (même en résolvant « localhost »), donc une
-# jambe `::1` aurait échoué à chaque passage et redémarré Caddy à chaque
-# exécution — une rupture d'idempotence pire que le bug d'origine.
-- name: S'assurer que l'admin API de Caddy répond, redémarrer sinon
-  block:
-    - name: Sonder si l'instance Caddy en cours expose son admin API
-      ansible.builtin.wait_for:
-        host: 127.0.0.1
-        port: 2019
-        timeout: 2
-      changed_when: false
-  rescue:
-    - name: Redémarrer Caddy pour faire naître l'admin API (transition admin off → admin 127.0.0.1:2019)
-      ansible.builtin.systemd_service:
-        name: caddy
-        state: restarted
-
-# Le `validate` de la tâche précédente ne joue que quand le template est
-# rendu. Ce qui pourrit réellement, c'est conf.d/ : cette tâche revalide la
-# configuration entière, fragments compris, à chaque passage — et un échec
-# ici arrête le play AVANT que les handlers ne se déclenchent, donc un
-# fragment cassé ne peut jamais être rechargé dans un proxy en service.
-- name: Revalider la configuration complète, fragments compris
+# répond-elle sur l'admin API, oui ou non ? Ce n'est délibérément PAS un
+# « reload, et si ça échoue on restart » : un reload échoue aussi quand un
+# fragment de projet est syntaxiquement valide mais sémantiquement refusé par
+# Caddy, et redémarrer dans ce cas couperait les connexions de tous les
+# projets pour, au final, échouer quand même. La sonde distingue « je ne peux
+# pas parler à l'instance » de « l'instance a refusé cette config » — seul le
+# premier cas justifie un restart.
+#
+# La sonde est une commande explicite en `failed_when: false` plutôt qu'un
+# `block`/`rescue` autour de `wait_for` : un `rescue:` attrape N'IMPORTE
+# QUELLE défaillance du bloc (module absent, argument invalide, interpréteur
+# Python cassé) et redémarrerait un proxy mutualisé sans avoir rien prouvé.
+# Ici le restart est branché sur le SEUL code de retour de la requête admin,
+# donc sur le seul fait qui le justifie. Il est branché sur `rc` et pas sur
+# `failed` : `failed_when: false` écrase `failed` dans le résultat, un
+# `when:` qui le testerait ne se déclencherait jamais et la tâche serait
+# décorative. `curl` est garanti présent — c'est la première tâche du rôle
+# qui l'installe.
+#
+# La sonde ne cible que `127.0.0.1` parce que le Caddyfile fixe l'endpoint
+# là : mesuré sur edge-01, l'admin API ne bindait que la loopback IPv4 (même
+# en résolvant « localhost »), donc une jambe `::1` aurait échoué à chaque
+# passage et redémarré Caddy à chaque exécution — une rupture d'idempotence
+# pire que le bug d'origine. Le coût de la transition `admin off` → `admin
+# 127.0.0.1:2019` est ainsi payé une seule fois : au run suivant la sonde
+# trouve le socket, le restart est sauté, et `--idempotence` reste à
+# `changed=0`.
+- name: Sonder si l'instance Caddy en cours expose son admin API
   ansible.builtin.command:
-    cmd: caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
+    cmd: curl --silent --show-error --max-time 2 --output /dev/null http://127.0.0.1:2019/config/
+  register: pvecli_caddy_admin_probe
   changed_when: false
+  failed_when: false
+
+- name: Redémarrer Caddy pour faire naître l'admin API (transition admin off → admin 127.0.0.1:2019)
+  ansible.builtin.systemd_service:
+    name: caddy
+    state: restarted
+  when: pvecli_caddy_admin_probe.rc != 0
 
 - name: Relire la version réellement installée
   ansible.builtin.command:
