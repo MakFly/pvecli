@@ -192,9 +192,25 @@ func (c *Client) AgentExec(ctx context.Context, node string, vmid int, argv []st
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 
+	// Le PID est connu et la commande tourne : c'est vrai quel que soit
+	// l'endroit où le délai nous rattrape. Une fonction, pour que les deux
+	// sorties possibles disent exactement la même chose.
+	stillRunning := func(cause error) error {
+		return fmt.Errorf("commande toujours en cours dans la VM %d (pid %d) — "+
+			"délai dépassé côté client, pas côté invité : %w", vmid, started.PID, cause)
+	}
+
 	for {
 		var res AgentExecResult
 		if err := c.get(ctx, epQemuAgentStatus, []string{node, strconv.Itoa(vmid)}, q, &res); err != nil {
+			// Le délai peut expirer PENDANT la requête aussi bien qu'entre
+			// deux. Rendre l'erreur de transport telle quelle perdrait le PID
+			// dans ce cas-là — et laquelle des deux fenêtres attrape le
+			// dépassement est une course, donc le message changeait d'une
+			// exécution à l'autre.
+			if ctx.Err() != nil {
+				return nil, stillRunning(ctx.Err())
+			}
 			return nil, err
 		}
 		if res.Exited != 0 {
@@ -205,8 +221,7 @@ func (c *Client) AgentExec(ctx context.Context, node string, vmid int, argv []st
 			// On rend le PID : la commande TOURNE toujours dans l'invité, et
 			// abandonner sans le dire laisserait quelqu'un croire qu'elle est
 			// morte avec nous.
-			return nil, fmt.Errorf("commande toujours en cours dans la VM %d (pid %d) — "+
-				"délai dépassé côté client, pas côté invité : %w", vmid, started.PID, ctx.Err())
+			return nil, stillRunning(ctx.Err())
 		case <-ticker.C:
 		}
 	}
