@@ -222,10 +222,18 @@ func TestEveryReferencedTemplateIsShipped(t *testing.T) {
 // ansibleTask is the shape of one task of a role's tasks/main.yml, just enough
 // to find the `include_role: pvecli_publish` and read the keys it publishes.
 // The include may be written short or FQCN, hence the two fields.
+// The command and service fields serve the ordering test below; like the
+// include, each may be written short or FQCN.
 type ansibleTask struct {
 	Name        string       `yaml:"name"`
 	IncludeRole *includeRole `yaml:"include_role"`
 	FQCNInclude *includeRole `yaml:"ansible.builtin.include_role"`
+	Command     *command     `yaml:"command"`
+	FQCNCommand *command     `yaml:"ansible.builtin.command"`
+	Systemd     *yaml.Node   `yaml:"systemd_service"`
+	FQCNSystemd *yaml.Node   `yaml:"ansible.builtin.systemd_service"`
+	Service     *yaml.Node   `yaml:"service"`
+	FQCNService *yaml.Node   `yaml:"ansible.builtin.service"`
 	Vars        struct {
 		PublishValues map[string]yaml.Node `yaml:"pvecli_publish_values"`
 	} `yaml:"vars"`
@@ -235,11 +243,30 @@ type includeRole struct {
 	Name string `yaml:"name"`
 }
 
-// publishedKeys returns the keys a role actually hands to pvecli_publish.
-// Reading the parsed YAML instead of the raw text matters: a substring search
-// for `<key>:` is satisfied by a comment, a task name, or any unrelated
-// mapping — including one in a role that never calls pvecli_publish at all.
-func publishedKeys(t *testing.T, tasksPath string) []string {
+type command struct {
+	Cmd string `yaml:"cmd"`
+}
+
+// cmdLine returns the command a task runs, whichever spelling it uses, or "".
+func (t ansibleTask) cmdLine() string {
+	if t.Command != nil {
+		return t.Command.Cmd
+	}
+	if t.FQCNCommand != nil {
+		return t.FQCNCommand.Cmd
+	}
+	return ""
+}
+
+// touchesService reports whether the task drives systemd — i.e. whether it can
+// start or restart the daemon.
+func (t ansibleTask) touchesService() bool {
+	return t.Systemd != nil || t.FQCNSystemd != nil || t.Service != nil || t.FQCNService != nil
+}
+
+// parseTasks reads a role's tasks/main.yml as an ordered list. The order is the
+// contract this file tests, so nothing here may sort or deduplicate.
+func parseTasks(t *testing.T, tasksPath string) []ansibleTask {
 	t.Helper()
 	raw, err := Assets.ReadFile(tasksPath)
 	if err != nil {
@@ -249,8 +276,58 @@ func publishedKeys(t *testing.T, tasksPath string) []string {
 	if err := yaml.Unmarshal(raw, &tasks); err != nil {
 		t.Fatalf("%s illisible: %v", tasksPath, err)
 	}
+	return tasks
+}
+
+// Le correctif « valider avant de redémarrer » est POSITIONNEL : la
+// revalidation de la configuration complète (fragments conf.d/ compris) ne
+// protège le proxy mutualisé que tant qu'elle précède toute tâche capable de
+// démarrer ou redémarrer le service. Un déplacement futur réintroduirait la
+// régression en silence — ce test est le seul endroit qui l'empêche.
+func TestCaddyValidatesTheWholeConfigBeforeAnyTaskCanStartTheService(t *testing.T) {
+	const tasksPath = "assets/ansible/roles/caddy/tasks/main.yml"
+	tasks := parseTasks(t, tasksPath)
+
+	validate := -1
+	for i, task := range tasks {
+		if strings.Contains(task.cmdLine(), "caddy validate") {
+			validate = i
+			break
+		}
+	}
+	if validate < 0 {
+		t.Fatalf("%s ne contient aucune tâche « command » lançant « caddy validate » : "+
+			"la garantie « rien ne touche au proxy avant validation » n'existe plus", tasksPath)
+	}
+
+	var services []int
+	for i, task := range tasks {
+		if task.touchesService() {
+			services = append(services, i)
+		}
+	}
+	if len(services) == 0 {
+		t.Fatalf("%s ne contient aucune tâche de service : ce test ne vérifie plus rien "+
+			"(le rôle a-t-il changé de module pour piloter systemd ?)", tasksPath)
+	}
+
+	for _, i := range services {
+		if i < validate {
+			t.Errorf("la tâche « %s » (index %d) peut démarrer ou redémarrer Caddy avant "+
+				"« %s » (index %d) : un fragment conf.d/ cassé ferait tomber le proxy partagé de tout le labo",
+				tasks[i].Name, i, tasks[validate].Name, validate)
+		}
+	}
+}
+
+// publishedKeys returns the keys a role actually hands to pvecli_publish.
+// Reading the parsed YAML instead of the raw text matters: a substring search
+// for `<key>:` is satisfied by a comment, a task name, or any unrelated
+// mapping — including one in a role that never calls pvecli_publish at all.
+func publishedKeys(t *testing.T, tasksPath string) []string {
+	t.Helper()
 	var keys []string
-	for _, task := range tasks {
+	for _, task := range parseTasks(t, tasksPath) {
 		inc := task.IncludeRole
 		if inc == nil {
 			inc = task.FQCNInclude

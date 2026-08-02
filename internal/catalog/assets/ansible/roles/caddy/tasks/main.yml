@@ -77,8 +77,15 @@
     validate: "caddy validate --adapter caddyfile --config %s"
   notify: Recharger Caddy
 
-# Cette tâche vient AVANT toute tâche capable de démarrer ou redémarrer le
-# proxy, et c'est délibéré. Le `validate` de la tâche précédente n'est joué
+# Cette tâche vient AVANT toute tâche DE CE RÔLE capable de démarrer ou
+# redémarrer le proxy, et c'est délibéré. Le seul démarrage qui puisse la
+# précéder n'est pas une tâche : c'est le `postinst` du paquet Caddy, qui fait
+# lui-même `deb-systemd-helper enable` puis `deb-systemd-invoke start
+# caddy.service` (constaté sur edge-01 dans /var/lib/dpkg/info/caddy.postinst).
+# Sur un hôte neuf, « Installer Caddy » démarre donc le proxy avant tout
+# Caddyfile de rôle — mais avec celui du paquet, valide et sans `import
+# conf.d/`, donc sans pouvoir buter sur un fragment de projet : inoffensif.
+# Le `validate` de la tâche précédente n'est joué
 # par le module `template` que si le contenu rendu diffère de celui sur
 # disque (ansible/modules/copy.py : `if checksum_src != checksum_dest ... if
 # validate:`) : sur un hôte déjà convergé il ne tourne pas du tout. Or ce qui
@@ -122,12 +129,22 @@
 # `block`/`rescue` autour de `wait_for` : un `rescue:` attrape N'IMPORTE
 # QUELLE défaillance du bloc (module absent, argument invalide, interpréteur
 # Python cassé) et redémarrerait un proxy mutualisé sans avoir rien prouvé.
-# Ici le restart est branché sur le SEUL code de retour de la requête admin,
-# donc sur le seul fait qui le justifie. Il est branché sur `rc` et pas sur
-# `failed` : `failed_when: false` écrase `failed` dans le résultat, un
-# `when:` qui le testerait ne se déclencherait jamais et la tâche serait
-# décorative. `curl` est garanti présent — c'est la première tâche du rôle
-# qui l'installe.
+# Pour la même raison, le restart n'est PAS branché sur `rc != 0` : ce test
+# agrège des faits différents. `rc == 7` (« Failed to connect to host ») est
+# le seul qui PROUVE l'absence d'écouteur sur 127.0.0.1:2019, donc le seul
+# branché ici. Les autres échecs de la sonde ne redémarrent délibérément
+# rien : `rc == 2` (curl absent ou non exécutable — le rôle l'installe en
+# première tâche, mais un run `--tags` peut sauter cette tâche, et
+# `failed_when: false` rend alors un résultat non-`failed` qui déclencherait
+# quand même la dépendance), `rc == 28` (dépassement de `--max-time`, donc
+# une instance lente, pas une instance absente), et tout code obtenu en
+# passant par un proxy hérité de l'environnement. « la sonde a échoué » n'est
+# pas « l'instance ne répond pas ». `--noproxy '*'` neutralise justement
+# `http_proxy`/`all_proxy` : `command` ne passe pas par un shell mais fait un
+# `shlex.split`, l'argument arrive donc littéralement `*`, sans glob.
+# Le test porte sur `rc` et pas sur `failed` : `failed_when: false` écrase
+# `failed` dans le résultat, un `when:` qui le testerait ne se déclencherait
+# jamais et la tâche serait décorative.
 #
 # La sonde ne cible que `127.0.0.1` parce que le Caddyfile fixe l'endpoint
 # là : mesuré sur edge-01, l'admin API ne bindait que la loopback IPv4 (même
@@ -139,7 +156,7 @@
 # `changed=0`.
 - name: Sonder si l'instance Caddy en cours expose son admin API
   ansible.builtin.command:
-    cmd: curl --silent --show-error --max-time 2 --output /dev/null http://127.0.0.1:2019/config/
+    cmd: curl --silent --show-error --noproxy '*' --max-time 2 --output /dev/null http://127.0.0.1:2019/config/
   register: pvecli_caddy_admin_probe
   changed_when: false
   failed_when: false
@@ -148,7 +165,7 @@
   ansible.builtin.systemd_service:
     name: caddy
     state: restarted
-  when: pvecli_caddy_admin_probe.rc != 0
+  when: pvecli_caddy_admin_probe.rc == 7
 
 - name: Relire la version réellement installée
   ansible.builtin.command:

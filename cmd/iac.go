@@ -1188,6 +1188,11 @@ func firstAgentIPv4(ifaces []pve.AgentInterface) string {
 // and two static addresses — are excluded rather than guessed: an inventory
 // that points Ansible at an arbitrary interface is worse than a short one,
 // because nothing says it happened.
+//
+// An IPv4 that parses is not yet an address that reaches the container:
+// loopback, the unspecified address and link-local designate the machine
+// running pvecli, or nothing at all, so they are refused too — `ssh 0.0.0.0`
+// would run the roles on the operator's own workstation.
 func lxcStaticIPv4(cfg pve.GuestConfig) (ip, reason string) {
 	keys := cfg.KeysWithPrefix("net")
 	if len(keys) == 0 {
@@ -1198,6 +1203,8 @@ func lxcStaticIPv4(cfg pve.GuestConfig) (ip, reason string) {
 		candidates []string // "net0=192.168.1.222", for the ambiguous case
 		addrs      []string
 		seen       []string // "net0 ip=dhcp", for the empty case
+		unusable   []string // "net0 ip=0.0.0.0/0", an IPv4 that designates nothing
+		malformed  []string // "net0 ip=pas-une-adresse", not an address at all
 		v6only     bool
 	)
 	for _, key := range keys {
@@ -1213,10 +1220,19 @@ func lxcStaticIPv4(cfg pve.GuestConfig) (ip, reason string) {
 		}
 		addr, ok := parseConfiguredAddr(raw)
 		if !ok {
+			malformed = append(malformed, key+" ip="+raw)
 			continue
 		}
 		if !addr.Is4() {
 			v6only = true
+			continue
+		}
+		// Une IPv4 qui parse ne désigne pas forcément ce conteneur : 127.0.0.1
+		// et 0.0.0.0 pointent la machine qui lance pvecli, 169.254.x.y ne
+		// survit pas au premier saut. Les joindre ferait jouer les rôles
+		// ailleurs que sur la cible — le chemin QEMU les écarte déjà.
+		if addr.IsLoopback() || addr.IsUnspecified() || addr.IsLinkLocalUnicast() {
+			unusable = append(unusable, key+" ip="+raw)
 			continue
 		}
 		candidates = append(candidates, key+"="+addr.String())
@@ -1227,6 +1243,17 @@ func lxcStaticIPv4(cfg pve.GuestConfig) (ip, reason string) {
 	case 1:
 		return addrs[0], ""
 	case 0:
+		// Ordre de précédence : ne jamais annoncer « seulement une IPv6 » ni
+		// « bail DHCP » quand une IPv4 était bel et bien déclarée mais refusée
+		// — le motif doit nommer ce qui a été lu, pas envoyer chercher ailleurs.
+		if len(unusable) > 0 {
+			return "", "une adresse IPv4 inutilisable pour joindre l'hôte (" + strings.Join(unusable, ", ") +
+				") — loopback, adresse non spécifiée ou lien-local ne désignent pas ce conteneur"
+		}
+		if len(malformed) > 0 {
+			return "", "une valeur illisible là où une adresse est attendue (" + strings.Join(malformed, ", ") +
+				") — ce n'est ni une adresse IP, ni « dhcp », ni « manual »"
+		}
 		if v6only {
 			return "", "seulement une IPv6 statique dans sa configuration (" + strings.Join(seen, ", ") +
 				") — l'inventaire ne pose que de l'IPv4"
