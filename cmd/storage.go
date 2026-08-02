@@ -25,6 +25,7 @@ images/rootdir, et aucun des deux n'accepte les deux familles.`,
 	c.AddCommand(
 		newStorageListCmd(), newStorageContentCmd(),
 		newStorageDownloadCmd(), newStorageUploadCmd(), newStorageRemoveCmd(),
+		newStorageDefCmd(),
 	)
 	return c
 }

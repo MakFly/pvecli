@@ -451,7 +451,23 @@ func newRoleCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "role",
 		Short: "Rôles et privilèges qu'ils accordent",
-		Args:  usage(cobra.NoArgs),
+		Long: `Lit et écrit les rôles du nœud.
+
+UNE ACL N'ACCORDE QU'UN RÔLE, jamais un privilège. C'est ce qui rend cette
+famille indispensable dès qu'on veut donner un droit précis : parmi les rôles
+intégrés du nœud, un privilège donné n'est souvent porté que par
+« Administrator » — Sys.Modify est dans ce cas. Attribuer Administrator sur « / »
+à un compte d'automatisation, c'est lui donner root@pam sous un autre nom.
+
+La sortie de moindre privilège est un rôle SUR MESURE, qui ne porte que ce
+qu'il faut :
+
+  pvecli access role add ops-backup --privs Sys.Audit,Sys.Modify
+  pvecli access acl set --path / --role ops-backup --token automation@pve!pvectl
+
+Privilèges : Sys.Audit sur / pour lire, « Sys.Modify » sur « /access » pour
+écrire — sur /access, pas sur /.`,
+		Args: usage(cobra.NoArgs),
 	}
 
 	ls := &cobra.Command{
@@ -520,8 +536,591 @@ Endpoint : GET /api2/json/access/roles/{roleid}`,
 	}
 	addRenderFlags(show)
 
-	c.AddCommand(ls, show)
+	c.AddCommand(ls, show, newRoleAddCmd(), newRoleSetCmd(), newRoleRmCmd())
 	return c
+}
+
+// ------------------------------------------------- écritures de rôle
+
+// knownPrivileges résout l'univers des privilèges de CE nœud.
+//
+// La source est le rôle Administrator, qui les porte tous par construction.
+// Coder la liste en dur la ferait dériver d'une version de PVE à l'autre, et
+// refuser ici un privilège que le nœud accepte serait pire que le 400 qu'on
+// cherche à éviter.
+//
+// Rend nil quand la lecture échoue. La validation est un confort, pas une
+// précondition : la rendre obligatoire ferait échouer une écriture parfaitement
+// valide chez qui n'a pas le droit de lire les rôles.
+func knownPrivileges(ctx context.Context, client *pve.Client) map[string]string {
+	privs, err := client.RolePrivileges(ctx, "Administrator")
+	if err != nil || len(privs) == 0 {
+		return nil
+	}
+	universe := make(map[string]string, len(privs))
+	for _, p := range privs {
+		universe[strings.ToLower(p)] = p
+	}
+	return universe
+}
+
+// checkPrivileges refuse un privilège que le nœud ne connaît pas, AVANT
+// l'écriture. Une faute de frappe passerait sinon jusqu'au rôle, qui
+// n'accorderait rien tout en ayant l'air correct.
+func checkPrivileges(cmd *cobra.Command, universe map[string]string, privs []string) error {
+	if universe == nil {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+			"⚠ privilèges NON vérifiés : le rôle Administrator n'a pas pu être lu, et c'est\n"+
+				"  lui qui liste les privilèges connus de ce nœud. Une faute de frappe passera.")
+		return nil
+	}
+
+	var problems []string
+	for _, p := range pve.NormalizePrivileges(privs) {
+		canonical, known := universe[strings.ToLower(p)]
+		switch {
+		case !known:
+			problems = append(problems, fmt.Sprintf("  %s — inconnu de ce nœud", p))
+		case canonical != p:
+			problems = append(problems, fmt.Sprintf("  %s — la casse compte, c'est « %s »", p, canonical))
+		}
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return &exitError{
+		code: pve.ExitUsage,
+		msg: "privilège(s) que ce nœud ne connaît pas :\n" + strings.Join(problems, "\n") + "\n" +
+			"  pvecli access role show Administrator     (la liste exhaustive de ce nœud)",
+	}
+}
+
+// refuseBuiltinRoleName arrête une écriture sur un rôle intégré au seul examen
+// du nom. Le nœud refuserait aussi — mais après la confirmation, et avec un
+// message qui parle de son code Perl plutôt que du geste.
+func refuseBuiltinRoleName(roleID, verb string) error {
+	if !pve.IsBuiltinRoleName(roleID) {
+		return nil
+	}
+	return &exitError{
+		code: pve.ExitUsage,
+		msg: fmt.Sprintf("%s « %s » échouerait sur le nœud : ce nom tombe dans l'espace que PVE\n"+
+			"se réserve — tout identifiant commençant par « PVE », la comparaison étant\n"+
+			"INSENSIBLE À LA CASSE (« pveBackup » compte aussi), plus « Administrator » et\n"+
+			"« NoAccess ».\n"+
+			"Ce n'est pas une prudence de cette CLI, c'est PVE::API2::Role qui refuse — et il\n"+
+			"refuserait APRÈS la confirmation. Choisis un nom hors de cet espace :\n"+
+			"  pvecli access role add ops-backup --privs Sys.Audit,Sys.Modify", verb, roleID),
+	}
+}
+
+// privilegeRows rend une liste de privilèges comme « role show » le fait déjà.
+func privilegeRows(privs []string) output.Rows {
+	rows := output.Rows{Headers: []string{"PRIVILÈGE"}}
+	for _, p := range privs {
+		rows.Cells = append(rows.Cells, []string{p})
+	}
+	return rows
+}
+
+// missingFrom rend ce que « from » contient et « to » pas — c'est-à-dire ce que
+// l'écriture ferait PERDRE. Les deux listes sont déjà normalisées.
+func missingFrom(from, to []string) []string {
+	kept := make(map[string]bool, len(to))
+	for _, p := range to {
+		kept[p] = true
+	}
+	var lost []string
+	for _, p := range from {
+		if !kept[p] {
+			lost = append(lost, p)
+		}
+	}
+	return lost
+}
+
+func newRoleAddCmd() *cobra.Command {
+	var privs []string
+
+	c := &cobra.Command{
+		Use:     "add <rôle>",
+		Aliases: []string{"create"},
+		Short:   "Crée un rôle sur mesure (POST /access/roles)",
+		Long: `Crée un rôle ne portant que les privilèges demandés.
+
+  pvecli access role add ops-backup --privs Sys.Audit,Sys.Modify
+
+POURQUOI CETTE COMMANDE EXISTE : une ACL n'accorde qu'un RÔLE, jamais un
+privilège isolé. Quand le privilège dont on a besoin n'est porté que par
+« Administrator » parmi les rôles intégrés — c'est le cas de Sys.Modify — la
+seule alternative à « Administrator sur / » est de fabriquer le rôle.
+
+LE NOM NE PEUT PAS COMMENCER PAR « PVE ». C'est un espace de noms que PVE se
+réserve, et le refus vient du nœud, pas d'ici : create_role rejette tout
+identifiant correspondant à /^PVE/i — la comparaison est INSENSIBLE À LA CASSE,
+donc « pveBackup » est refusé comme « PVEBackup ». « Administrator » et
+« NoAccess » sont pris. Un rôle sur mesure ne peut donc PAS s'appeler
+« PVEBackupJobAdmin » : nomme-le « ops-backup », « backup-job-admin », ce que tu
+veux hors de cet espace. Les caractères admis sont [A-Za-z0-9.-_].
+
+--privs EST OBLIGATOIRE ici, alors que l'API le donne pour optionnel. Un rôle
+sans privilège est « NoAccess » sous un autre nom : un objet qui rassure sans
+rien accorder, et qu'une ACL attribuera sans que personne ne s'aperçoive qu'elle
+n'accorde rien. Les noms de privilèges sont sensibles à la CASSE, et vérifiés
+avant l'écriture contre ceux que le nœud connaît réellement (ceux
+d'Administrator, qui les porte tous).
+
+Le rôle créé n'accorde encore rien à personne : il faut une ACL.
+
+  pvecli access acl set --path / --role ops-backup --token automation@pve!pvectl
+
+Endpoint : POST /api2/json/access/roles (Sys.Modify sur /access — pas sur /)`,
+		Args: usage(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			roleID := args[0]
+			wanted := pve.NormalizePrivileges(privs)
+			if len(wanted) == 0 {
+				return &exitError{
+					code: pve.ExitUsage,
+					msg: "--privs est obligatoire : un rôle sans privilège est « NoAccess » sous un\n" +
+						"autre nom — il s'attribue, et il n'accorde rien.\n" +
+						"  pvecli access role add " + roleID + " --privs Sys.Audit,Sys.Modify",
+				}
+			}
+			if err := refuseBuiltinRoleName(roleID, "Créer"); err != nil {
+				return err
+			}
+
+			opts, err := renderOptions(cmd)
+			if err != nil {
+				return err
+			}
+			client, err := newClient(cmd)
+			if err != nil {
+				return err
+			}
+			if err := checkPrivileges(cmd, knownPrivileges(cmd.Context(), client), wanted); err != nil {
+				return err
+			}
+
+			payload := pve.RoleOptions{RoleID: roleID, Privs: wanted}
+			runner := newRunner(cmd, client)
+			result, err := runner.Run(cmd.Context(), service.Mutation{
+				Target: roleID,
+				Plan: service.Plan{
+					Method:   "POST",
+					Path:     pve.RolesPath(),
+					Payload:  payload.Values(),
+					Effect:   fmt.Sprintf("rôle %s créé avec %d privilège(s) — il n'est encore attribué à personne", roleID, len(wanted)),
+					Rollback: "pvecli access role rm " + roleID,
+					Verify:   "relecture des privilèges du rôle",
+				},
+				PreRead: func(ctx context.Context) (service.State, error) {
+					if _, err := client.RolePrivileges(ctx, roleID); err == nil {
+						return service.State{}, fmt.Errorf(
+							"le rôle « %s » existe déjà — le recréer écraserait ses privilèges :\n"+
+								"  pvecli access role show %s\n  pvecli access role set %s --add-priv …", roleID, roleID, roleID)
+					}
+					// Exists=true veut dire « la précondition tient », pas « le
+					// rôle existe » : le pipeline refuse d'écrire sur un false, et
+					// ce qui doit exister ici, c'est un identifiant libre.
+					return service.State{Exists: true, Status: "identifiant libre"}, nil
+				},
+				Write: func(ctx context.Context) (string, error) {
+					return "", client.CreateRole(ctx, roleID, wanted)
+				},
+				PostRead: func(ctx context.Context) (service.State, error) {
+					after, err := client.RolePrivileges(ctx, roleID)
+					if err != nil {
+						return service.State{}, err
+					}
+					return service.State{Exists: true, Status: "créé", Raw: after}, nil
+				},
+			})
+			if err != nil {
+				return err
+			}
+
+			// Un --dry-run n'a pas de résultat. Le pipeline rend alors l'état
+			// AVANT l'écriture ; le passer au rendu ferait sortir sur stdout un
+			// rôle inchangé présenté comme le rôle créé — et « -o json | jq »
+			// lirait cette fiction comme un fait. Le plan est déjà sur stderr,
+			// il est la seule sortie honnête de ce mode.
+			if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
+				return nil
+			}
+
+			granted, _ := result.Raw.([]string)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+				"\n« %s » n'accorde encore rien : un rôle ne vaut que par l'ACL qui le pose.\n"+
+					"  pvecli access acl set --path / --role %s --token <token>\n", roleID, roleID)
+			return output.Render(cmd.OutOrStdout(), opts, granted, privilegeRows(granted))
+		},
+	}
+
+	c.Flags().StringSliceVar(&privs, "privs", nil,
+		"privilèges accordés, séparés par des virgules (répétable) — sensible à la casse")
+	addWriteFlags(c)
+	addRenderFlags(c)
+	return c
+}
+
+func newRoleSetCmd() *cobra.Command {
+	var replace, added, removed []string
+
+	c := &cobra.Command{
+		Use:     "set <rôle>",
+		Aliases: []string{"update"},
+		Short:   "Modifie les privilèges d'un rôle (PUT /access/roles/{roleid})",
+		Long: `Modifie les privilèges d'un rôle sur mesure.
+
+  pvecli access role set ops-backup --add-priv Datastore.Allocate
+  pvecli access role set ops-backup --rm-priv Sys.Modify
+  pvecli access role set ops-backup --privs Sys.Audit,Sys.Modify   # REMPLACE tout
+
+--privs REMPLACE la liste entière ; --add-priv et --rm-priv la modifient. Les
+deux formes s'excluent, parce qu'elles répondent à deux questions différentes :
+« que doit contenir ce rôle » et « qu'est-ce qui change ». --add-priv et
+--rm-priv se combinent, eux : les retraits sont appliqués après les ajouts.
+
+POURQUOI PVECLI RELIT LE RÔLE AVANT D'ÉCRIRE. Côté API, le PUT REMPLACE la
+liste. Le schéma expose bien un « append » qui ferait l'union côté nœud — mais
+alors la liste résultante ne serait connue qu'APRÈS l'écriture, et un --dry-run
+ne pourrait pas la montrer. pvecli ne l'envoie donc jamais : il lit les
+privilèges actuels, calcule l'union (ou la soustraction, que l'API n'expose pas
+du tout) ici, et le plan affiche la liste FINALE. Le retrait n'existe d'ailleurs
+qu'à ce prix : l'API n'a aucune primitive pour ça.
+
+TOUTE PERTE DE PRIVILÈGE est traitée comme une opération destructive — la
+confirmation exige de retaper le nom du rôle, et les privilèges perdus sont
+nommés un par un avant. Un rôle est attribué à des identités qui, elles, ne sont
+pas relues : ce qui disparaît ici disparaît partout où l'ACL le posait.
+
+Endpoint : PUT /api2/json/access/roles/{roleid} (Sys.Modify sur /access)`,
+		Args: usage(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			roleID := args[0]
+			f := cmd.Flags()
+
+			if !f.Changed("privs") && !f.Changed("add-priv") && !f.Changed("rm-priv") {
+				return &exitError{
+					code: pve.ExitUsage,
+					msg:  "aucune modification demandée — passe --privs, --add-priv ou --rm-priv",
+				}
+			}
+			if f.Changed("privs") && (f.Changed("add-priv") || f.Changed("rm-priv")) {
+				return &exitError{
+					code: pve.ExitUsage,
+					msg: "--privs REMPLACE la liste entière, --add-priv/--rm-priv la modifient :\n" +
+						"les combiner rendrait le résultat dépendant d'un ordre que personne ne lit.\n" +
+						"Choisis l'une des deux formes.",
+				}
+			}
+			if err := refuseBuiltinRoleName(roleID, "Modifier"); err != nil {
+				return err
+			}
+
+			opts, err := renderOptions(cmd)
+			if err != nil {
+				return err
+			}
+			client, err := newClient(cmd)
+			if err != nil {
+				return err
+			}
+
+			// Seuls les privilèges NOMMÉS sur la ligne de commande sont
+			// validés : ceux déjà portés par le rôle ont été acceptés par le
+			// nœud une fois, et les revalider ferait échouer un simple retrait
+			// à cause d'un voisin. Un --rm-priv mal orthographié est validé
+			// aussi — sinon il ne retirerait rien, en silence.
+			named := append(append(append([]string{}, replace...), added...), removed...)
+			if err := checkPrivileges(cmd, knownPrivileges(cmd.Context(), client), named); err != nil {
+				return err
+			}
+
+			// La lecture précède la composition du payload, et pas seulement le
+			// pre-read : sans elle, ni l'union ni la soustraction ne sont
+			// calculables, et le PUT effacerait tout le reste.
+			current, err := client.RolePrivileges(cmd.Context(), roleID)
+			if err != nil {
+				return err
+			}
+
+			var final []string
+			if f.Changed("privs") {
+				final = pve.NormalizePrivileges(replace)
+			} else {
+				dropped := make(map[string]bool)
+				for _, p := range pve.NormalizePrivileges(removed) {
+					dropped[p] = true
+				}
+				merged := make([]string, 0, len(current)+len(added))
+				for _, p := range append(append([]string{}, current...), pve.NormalizePrivileges(added)...) {
+					if !dropped[p] {
+						merged = append(merged, p)
+					}
+				}
+				final = pve.NormalizePrivileges(merged)
+			}
+
+			if len(final) == 0 {
+				return &exitError{
+					code: pve.ExitUsage,
+					msg: "cette modification ne laisserait AUCUN privilège : le rôle deviendrait\n" +
+						"« NoAccess » sous un autre nom, toujours attribué, n'accordant plus rien.\n" +
+						"  pvecli access role rm " + roleID + "     (si c'est bien de le supprimer qu'il s'agit)",
+				}
+			}
+
+			lost := missingFrom(current, final)
+			gained := missingFrom(final, current)
+			payload := pve.RoleOptions{RoleID: roleID, Privs: final}
+
+			runner := newRunner(cmd, client)
+			result, err := runner.Run(cmd.Context(), service.Mutation{
+				Target: roleID,
+				// Perdre un privilège n'est pas une destruction, et en a la
+				// conséquence : les identités qui portent ce rôle perdent le
+				// droit sans que rien ne les relise. Le niveau de confirmation
+				// suit la conséquence, pas le verbe.
+				Destructive: len(lost) > 0,
+				Plan: service.Plan{
+					Method:   "PUT",
+					Path:     pve.RolePath(roleID),
+					Payload:  payload.UpdateValues(),
+					Effect:   fmt.Sprintf("rôle %s : %d privilège(s) au total, +%d, -%d", roleID, len(final), len(gained), len(lost)),
+					Rollback: fmt.Sprintf("pvecli access role set %s --privs %s", roleID, strings.Join(current, ",")),
+					Verify:   "relecture des privilèges du rôle",
+				},
+				PreRead: func(_ context.Context) (service.State, error) {
+					// Le rôle vient d'être lu, juste au-dessus : le relire ici
+					// n'ajouterait pas de preuve, seulement une fenêtre de plus
+					// entre la décision et l'écriture.
+					for _, p := range gained {
+						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  + %s\n", p)
+					}
+					for _, p := range lost {
+						_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  - %s\n", p)
+					}
+					if len(lost) > 0 {
+						_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+							"⚠ %d privilège(s) PERDUS : toute identité portant « %s » les perd,\n"+
+								"  sans qu'aucune ACL soit relue ni modifiée.\n", len(lost), roleID)
+					}
+					return service.State{Exists: true, Status: fmt.Sprintf("%d privilège(s)", len(current)), Raw: current}, nil
+				},
+				Write: func(ctx context.Context) (string, error) {
+					return "", client.UpdateRole(ctx, roleID, final)
+				},
+				PostRead: func(ctx context.Context) (service.State, error) {
+					after, err := client.RolePrivileges(ctx, roleID)
+					if err != nil {
+						return service.State{}, err
+					}
+					return service.State{Exists: true, Status: "modifié", Raw: after}, nil
+				},
+			})
+			if err != nil {
+				return err
+			}
+
+			// Un --dry-run n'a pas de résultat. Le pipeline rend alors l'état
+			// AVANT l'écriture ; le passer au rendu ferait sortir sur stdout un
+			// rôle inchangé présenté comme le rôle modifié — et « -o json | jq »
+			// lirait cette fiction comme un fait. Le plan est déjà sur stderr,
+			// il est la seule sortie honnête de ce mode.
+			if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
+				return nil
+			}
+
+			granted, _ := result.Raw.([]string)
+			return output.Render(cmd.OutOrStdout(), opts, granted, privilegeRows(granted))
+		},
+	}
+
+	f := c.Flags()
+	f.StringSliceVar(&replace, "privs", nil, "REMPLACE la liste entière par celle-ci")
+	f.StringSliceVar(&added, "add-priv", nil, "ajoute ces privilèges aux existants (répétable)")
+	f.StringSliceVar(&removed, "rm-priv", nil, "retire ces privilèges des existants (répétable)")
+	addWriteFlags(c)
+	addRenderFlags(c)
+	return c
+}
+
+func newRoleRmCmd() *cobra.Command {
+	var iKnow bool
+
+	c := &cobra.Command{
+		Use:     "rm <rôle>",
+		Aliases: []string{"delete"},
+		Short:   "Supprime un rôle sur mesure (DELETE /access/roles/{roleid})",
+		Long: `Supprime un rôle.
+
+CE QUI DISPARAÎT dépasse le rôle : une ACL n'accorde qu'un rôle, donc toute
+identité à qui il était attribué perd ces droits d'un coup. Le pre-read liste
+les ACL qui le référencent avant de demander confirmation — mais
+GET /access/acl est FILTRÉ par les droits de l'appelant : une liste vide veut
+dire « aucune ACL VISIBLE », pas « aucune ACL ».
+
+Les rôles INTÉGRÉS sont refusés — par cette CLI, et de toute façon par le nœud :
+PVE::API2::Role::delete_role meurt sur « auto-generated role cannot be deleted »
+dès que role_is_special() répond oui, c'est-à-dire pour « Administrator »,
+« NoAccess » et tout ce que PVE génère sous le préfixe « PVE ». pvecli lit
+« special » dans GET /access/roles pour le dire AVANT la confirmation, et
+retombe sur le nom quand cette liste n'est pas lisible.
+--i-know-what-im-doing lève le refus local ; celui du nœud, non.
+
+Opération destructive : la confirmation exige de retaper le nom du rôle.
+Pour n'en retirer qu'une partie, sans casser les ACL :
+
+  pvecli access role set <rôle> --rm-priv <privilège>
+
+Endpoint : DELETE /api2/json/access/roles/{roleid} (Sys.Modify sur /access)`,
+		Args: usage(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			roleID := args[0]
+			// Le filet de nom joue AVANT toute lecture ; la vérité du nœud
+			// (« special ») est vérifiée dans le pre-read, où elle est lisible.
+			if !iKnow && pve.IsBuiltinRoleName(roleID) {
+				return &exitError{
+					code: pve.ExitUsage,
+					msg: fmt.Sprintf("« %s » porte un nom de rôle INTÉGRÉ (préfixe « PVE » insensible à la casse,\n"+
+						"« Administrator », « NoAccess ») : le supprimer retirerait un rôle que PVE et son\n"+
+						"interface tiennent pour acquis, et toute ACL qui le pose n'accorderait plus rien.\n"+
+						"Le nœud refuserait de toute façon — delete_role meurt sur « auto-generated role\n"+
+						"cannot be deleted ».\n"+
+						"  --i-know-what-im-doing pour lever le refus LOCAL et voir celui du nœud", roleID),
+				}
+			}
+
+			opts, err := renderOptions(cmd)
+			if err != nil {
+				return err
+			}
+			client, err := newClient(cmd)
+			if err != nil {
+				return err
+			}
+
+			runner := newRunner(cmd, client)
+			result, err := runner.Run(cmd.Context(), service.Mutation{
+				Target:      roleID,
+				Destructive: true,
+				Plan: service.Plan{
+					Method:   "DELETE",
+					Path:     pve.RolePath(roleID),
+					Effect:   fmt.Sprintf("le rôle %s disparaît — les ACL qui le posaient n'accordent plus rien", roleID),
+					Rollback: "aucun : recréer le rôle (pvecli access role add …) puis reposer les ACL",
+					Verify:   "le rôle ne doit plus répondre sur /access/roles/{roleid}",
+				},
+				PreRead: func(ctx context.Context) (service.State, error) {
+					privs, err := client.RolePrivileges(ctx, roleID)
+					if err != nil {
+						return service.State{}, err
+					}
+					if err := refuseBuiltinFromNode(ctx, cmd, client, roleID, iKnow); err != nil {
+						return service.State{}, err
+					}
+					printRoleHolders(ctx, cmd, client, roleID)
+					return service.State{Exists: true, Status: fmt.Sprintf("%d privilège(s)", len(privs)), Raw: privs}, nil
+				},
+				Write: func(ctx context.Context) (string, error) {
+					return "", client.DeleteRole(ctx, roleID)
+				},
+				PostRead: func(ctx context.Context) (service.State, error) {
+					if _, err := client.RolePrivileges(ctx, roleID); err == nil {
+						return service.State{}, fmt.Errorf(
+							"le rôle « %s » répond encore — la suppression n'a pas pris", roleID)
+					}
+					return service.State{Exists: false, Status: "supprimé"}, nil
+				},
+			})
+			if err != nil {
+				return err
+			}
+
+			// Un --dry-run n'a pas de résultat. Le pipeline rend alors l'état
+			// AVANT l'écriture ; le passer au rendu ferait sortir sur stdout un
+			// rôle intact présenté comme supprimé — et « -o json | jq » lirait
+			// cette fiction comme un fait. Le plan est déjà sur stderr, il est
+			// la seule sortie honnête de ce mode.
+			if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
+				return nil
+			}
+
+			rows := output.Rows{Headers: []string{"CHAMP", "VALEUR"}, Cells: [][]string{
+				{"rôle", roleID}, {"état", result.Status},
+			}}
+			return output.Render(cmd.OutOrStdout(), opts, result.Raw, rows)
+		},
+	}
+
+	c.Flags().BoolVar(&iKnow, "i-know-what-im-doing", false, "lève le refus de toucher à un rôle intégré")
+	addWriteFlags(c)
+	addRenderFlags(c)
+	return c
+}
+
+// refuseBuiltinFromNode demande au NŒUD si le rôle est intégré. C'est la seule
+// vérité — « special » — là où le nom n'est qu'un motif. Une liste illisible
+// ne fait pas échouer la commande : le filet de nom a déjà joué en amont.
+func refuseBuiltinFromNode(ctx context.Context, cmd *cobra.Command, client *pve.Client, roleID string, iKnow bool) error {
+	roles, err := client.Roles(ctx)
+	if err != nil {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+			"⚠ /access/roles illisible : impossible de vérifier si « %s » est un rôle intégré.\n", roleID)
+		return nil
+	}
+	for _, r := range roles {
+		if r.RoleID != roleID || !r.IsBuiltin() {
+			continue
+		}
+		if iKnow {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+				"⚠ « %s » est un rôle INTÉGRÉ (special=1) — supprimé sur ta demande explicite.\n", roleID)
+			return nil
+		}
+		return fmt.Errorf("« %s » est un rôle INTÉGRÉ du nœud (special=1) : le supprimer "+
+			"retire un rôle que PVE et son interface tiennent pour acquis.\n"+
+			"  --i-know-what-im-doing si c'est vraiment ce que tu veux", roleID)
+	}
+	return nil
+}
+
+// printRoleHolders nomme les identités qui perdront leurs droits.
+func printRoleHolders(ctx context.Context, cmd *cobra.Command, client *pve.Client, roleID string) {
+	entries, err := client.ACL(ctx)
+	if err != nil {
+		// Un 403 sur /access/acl n'empêche pas de supprimer le rôle : il empêche
+		// seulement de dire qui en pâtira. Échouer ici transformerait un manque
+		// d'information en blocage ; se taire le transformerait en illusion.
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+			"⚠ ACL illisibles (%v) : impossible de dire qui porte « %s ». Ce n'est PAS\n"+
+				"  la preuve que personne ne le porte.\n", err, roleID)
+		return
+	}
+
+	var holders []pve.ACLEntry
+	for _, e := range entries {
+		if e.RoleID == roleID {
+			holders = append(holders, e)
+		}
+	}
+	if len(holders) == 0 {
+		// « visible » n'est pas une précaution de langage : GET /access/acl ne
+		// rend que les entrées dont l'appelant peut modifier les permissions.
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+			"\naucune ACL VISIBLE ne référence « %s » — le nœud ne montre que celles que tu\n"+
+				"as le droit de modifier, il en existe peut-être d'autres.\n", roleID)
+		return
+	}
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+		"\n%d identité(s) perdront ces droits (parmi les ACL VISIBLES) :\n", len(holders))
+	for _, e := range holders {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  %-8s %-28s sur %-20s propage=%s\n",
+			e.Type, e.UGID, e.Path, yesNo(e.Propagate == 1))
+	}
 }
 
 // ---------------------------------------------------------------- acl

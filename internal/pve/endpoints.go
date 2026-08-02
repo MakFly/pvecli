@@ -36,11 +36,18 @@ var (
 	epPermissions = endpoint{"GET", "/access/permissions"}
 	epClusterRes  = endpoint{"GET", "/cluster/resources"}
 
-	epUsers       = endpoint{"GET", "/access/users"}
-	epUserCreate  = endpoint{"POST", "/access/users"}
-	epUser        = endpoint{"GET", "/access/users/{userid}"}
-	epRoles       = endpoint{"GET", "/access/roles"}
-	epRole        = endpoint{"GET", "/access/roles/{roleid}"}
+	epUsers      = endpoint{"GET", "/access/users"}
+	epUserCreate = endpoint{"POST", "/access/users"}
+	epUser       = endpoint{"GET", "/access/users/{userid}"}
+	epRoles      = endpoint{"GET", "/access/roles"}
+	epRole       = endpoint{"GET", "/access/roles/{roleid}"}
+	// Les trois écritures de rôle. Elles exigent « Sys.Modify » sur
+	// « /access » — pas sur « / », ce que le permissions.check du schéma dit
+	// explicitement. C'est ce qui rend un rôle sur mesure atteignable sans
+	// donner Administrator : voir internal/pve/access.go et PVX-077.
+	epRoleCreate  = endpoint{"POST", "/access/roles"}
+	epRoleUpdate  = endpoint{"PUT", "/access/roles/{roleid}"}
+	epRoleDelete  = endpoint{"DELETE", "/access/roles/{roleid}"}
 	epACL         = endpoint{"GET", "/access/acl"}
 	epACLUpdate   = endpoint{"PUT", "/access/acl"}
 	epTokens      = endpoint{"GET", "/access/users/{userid}/token"}
@@ -120,6 +127,24 @@ var (
 	epStorageUpload  = endpoint{"POST", "/nodes/{node}/storage/{storage}/upload"}
 	epStorageVolume  = endpoint{"DELETE", "/nodes/{node}/storage/{storage}/content/{volume}"}
 
+	// Les DÉFINITIONS de stockage. Ce sont des endpoints de CLUSTER, sans
+	// {node} : la déclaration vit dans /etc/pve/storage.cfg, répliquée à tout le
+	// cluster. « epNodeStorage » juste au-dessus est une AUTRE chose — l'état
+	// vivant d'un stockage vu par UN nœud, avec son remplissage et son
+	// activité. Un stockage déclaré une fois apparaît sur chaque nœud ; le
+	// supprimer ici le retire de tous.
+	//
+	// Le privilège n'est PAS « Sys.Modify » : les trois écritures exigent
+	// « Datastore.Allocate » sur « /storage », que le rôle intégré
+	// PVEDatastoreAdmin porte déjà. C'est une bonne nouvelle pour le moindre
+	// privilège — contrairement à /cluster/backup, aucun rôle sur mesure n'est
+	// nécessaire. Voir internal/pve/storagedef.go et PVX-078.
+	epStorageDefs   = endpoint{"GET", "/storage"}
+	epStorageDef    = endpoint{"GET", "/storage/{storage}"}
+	epStorageDefNew = endpoint{"POST", "/storage"}
+	epStorageDefSet = endpoint{"PUT", "/storage/{storage}"}
+	epStorageDefDel = endpoint{"DELETE", "/storage/{storage}"}
+
 	epNetwork       = endpoint{"GET", "/nodes/{node}/network"}
 	epNetworkIface  = endpoint{"GET", "/nodes/{node}/network/{iface}"}
 	epNetworkApply  = endpoint{"PUT", "/nodes/{node}/network"}
@@ -156,6 +181,9 @@ var AllEndpoints = []endpoint{
 	epUser,
 	epRoles,
 	epRole,
+	epRoleCreate,
+	epRoleUpdate,
+	epRoleDelete,
 	epACL,
 	epACLUpdate,
 	epTokens,
@@ -217,6 +245,11 @@ var AllEndpoints = []endpoint{
 	epStorageDownURL,
 	epStorageUpload,
 	epStorageVolume,
+	epStorageDefs,
+	epStorageDef,
+	epStorageDefNew,
+	epStorageDefSet,
+	epStorageDefDel,
 	epNetwork,
 	epNetworkIface,
 	epNetworkApply,
