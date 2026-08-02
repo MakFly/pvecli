@@ -7,6 +7,7 @@ import (
 	"github.com/MakFly/pvecli/internal/config"
 	"github.com/MakFly/pvecli/internal/log"
 	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/MakFly/pvecli/internal/secret"
 	"github.com/spf13/cobra"
 )
 
@@ -20,6 +21,24 @@ func newClient(cmd *cobra.Command) (*pve.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// A source that was configured and then failed is reported as such rather
+	// than folded into "secret absent". The two have opposite fixes — one means
+	// "tell me where the secret is", the other means "the place you named is
+	// broken" — and one generic message sends people to the wrong one.
+	if eff.SecretErr != nil {
+		return nil, &pve.AuthError{
+			Reason: "le secret du token n'a pas pu être lu",
+			Hint:   eff.SecretErr.Error(),
+		}
+	}
+	if eff.TokenSecret == "" {
+		return nil, &pve.AuthError{
+			Reason: "le secret du token d'API est introuvable",
+			Hint:   secret.MissingHint(eff.ContextName),
+		}
+	}
+
 	timeout, _ := cmd.Flags().GetDuration("timeout")
 	verbosity, _ := cmd.Flags().GetCount("verbose")
 

@@ -54,6 +54,12 @@ Endpoints : GET /version · /cluster/status · /nodes · /access/permissions`,
 			out := cmd.OutOrStdout()
 			_, _ = fmt.Fprintf(out, "cible     %s\n", eff.Endpoint)
 			_, _ = fmt.Fprintf(out, "identité  %s\n", eff.TokenID)
+			// Which source answered, never the value. Reaching this line means
+			// a secret was found — newClient refuses earlier otherwise — so the
+			// useful fact is *which* of the three gave it. The classic surprise
+			// is an export in the current shell quietly masking a keyring
+			// entry, and this is the only place that becomes visible.
+			_, _ = fmt.Fprintf(out, "secret    %s\n", eff.Sources["token_secret"])
 			_, _ = fmt.Fprintf(out, "TLS       %s\n", client.TrustMode())
 			if hasAccessToken {
 				_, _ = fmt.Fprintf(out, "Access    service token présent\n")

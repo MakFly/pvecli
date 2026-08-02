@@ -1,12 +1,14 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/MakFly/pvecli/internal/secret"
 	"github.com/spf13/pflag"
 )
 
@@ -22,6 +24,21 @@ type Effective struct {
 	TLS         TLS
 	IaC         IaC
 	CF          CF
+
+	// SecretSource and SecretCommand are the *declaration* of where the secret
+	// lives, carried through so `auth status` and `doctor` can report on a
+	// source even when it produced nothing.
+	SecretSource  string
+	SecretCommand string
+
+	// SecretErr is why the secret could not be resolved, when it could not.
+	//
+	// Not returned as an error from Resolve: most commands need the effective
+	// configuration whether or not a credential was found — `config show` and
+	// `auth status` exist precisely to be run when authentication is broken.
+	// The commands that do need to talk to the node fail at pve.New, which is
+	// where the message belongs.
+	SecretErr error
 
 	// Sources maps a field name to the layer that won it: "flag --endpoint",
 	// "env PVE_API_URL", "fichier" or "défaut". A layered configuration that
@@ -118,12 +135,30 @@ func Resolve(fl *pflag.FlagSet, f *File) (*Effective, error) {
 		e.Sources["insecure"] = "défaut"
 	}
 
-	// The token secret has exactly one source: the environment.
-	//
-	// Not the file — Load refuses it there. Not a flag either: a flag value is
-	// visible in `ps` to every user of the machine, and lands in the shell
-	// history. This omission is the design, not a gap to fill later.
-	e.TokenSecret = os.Getenv(EnvTokenSecret)
+	// The token secret still comes from nowhere a flag or the config file can
+	// reach — that omission is the design, not a gap. What it now has is three
+	// ways to be *found*: the environment, a command whose stdout is the
+	// secret, and the OS keyring. See internal/secret for why.
+	e.SecretSource = c.SecretSource
+	e.SecretCommand = c.SecretCommand
+
+	res, err := secret.Resolve(secret.Request{
+		Context: e.ContextName,
+		Source:  secret.Source(c.SecretSource),
+		Command: c.SecretCommand,
+	})
+	switch {
+	case err == nil:
+		e.TokenSecret, e.Sources["token_secret"] = res.Secret, res.Origin
+	case errors.Is(err, secret.ErrNotFound):
+		e.Sources["token_secret"] = "non défini"
+	default:
+		// A configured-but-broken source. Keep the reason: the command that
+		// needs a credential will surface it, the ones that do not can carry
+		// on and still print a useful `config show`.
+		e.SecretErr = err
+		e.Sources["token_secret"] = "erreur"
+	}
 
 	return e, nil
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/MakFly/pvecli/internal/config"
 	"github.com/MakFly/pvecli/internal/log"
 	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/MakFly/pvecli/internal/secret"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -143,6 +144,14 @@ Le secret n'est montré QU'UNE FOIS — le nœud ne le garde pas en clair.
     export PVE_API_TOKEN_SECRET='%s'
 
 `, res.FullTokenID, res.Secret)
+
+				// The export above only lives as long as this shell. Offering
+				// the keyring here is the whole point: it is the one moment
+				// the secret exists in this process, and asking later means
+				// asking someone to fetch a value the node will never show
+				// again. Offered, not done silently — filing a credential
+				// somewhere is the operator's decision.
+				stashSecretOnLogin(cmd, eff.ContextName, res.Secret)
 			}
 			if bootErr != nil {
 				if res != nil && res.TokenCreated {
@@ -233,4 +242,47 @@ func readLoginPassword(cmd *cobra.Command) (string, error) {
 		return "", fmt.Errorf("lecture du mot de passe : %w", err)
 	}
 	return string(raw), nil
+}
+
+// stashSecretOnLogin offers to file the freshly minted secret in the keyring.
+//
+// Best-effort throughout: `login` has already succeeded and already printed the
+// only copy of the secret that will ever exist. Nothing below is allowed to
+// turn that success into a non-zero exit — a keyring that is locked, absent, or
+// simply declined is a note on stderr, not a failure.
+func stashSecretOnLogin(cmd *cobra.Command, ctxName, value string) {
+	errOut := cmd.ErrOrStderr()
+
+	kr := secret.OpenKeyring()
+	if kr == nil {
+		_, _ = fmt.Fprintf(errOut,
+			"note : aucun trousseau sur cette machine — l'export ci-dessus ne survit pas à ce shell.\n"+
+				"       Voir « pvecli auth status » pour les autres sources.\n")
+		return
+	}
+
+	// No TTY means a script is driving: asking would either block or be
+	// answered by whatever happens to be on stdin.
+	if !stdinIsTerminal() {
+		_, _ = fmt.Fprintf(errOut,
+			"note : secret non rangé dans le trousseau (pas de terminal pour demander).\n"+
+				"       Pour le faire : pvecli auth set-secret --stdin\n")
+		return
+	}
+
+	if err := confirm(cmd, fmt.Sprintf("Ranger ce secret dans le trousseau %s pour le contexte « %s » ?", kr.Name(), ctxName)); err != nil {
+		_, _ = fmt.Fprintf(errOut, "secret non rangé — il n'existe que dans l'export ci-dessus.\n")
+		return
+	}
+
+	if err := secret.StoreToken(ctxName, value); err != nil {
+		_, _ = fmt.Fprintf(errOut, "le trousseau a refusé le secret : %v\n", err)
+		if hint := secret.WriteHint(ctxName); hint != "" {
+			_, _ = fmt.Fprintf(errOut, "\n%s\n", hint)
+		}
+		return
+	}
+
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(),
+		"trousseau    secret rangé pour le contexte « %s »\n", ctxName)
 }

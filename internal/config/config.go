@@ -1,9 +1,10 @@
 // Package config resolves the effective configuration by layering, in
 // decreasing priority: flags > environment > file > defaults (PRD §7.1).
 //
-// The token secret is deliberately never read from the config file: it comes
-// from the environment, itself fed by the OS keychain (decision D1). Load and
-// SetKey both refuse the key outright rather than tolerating it.
+// The token secret's *value* is deliberately never read from the config file:
+// Load and SetKey both refuse the key outright rather than tolerating it. What
+// the file may carry since PVX-076 is the *name* of the source it lives in —
+// env, a command, or the OS keyring (see internal/secret).
 package config
 
 import (
@@ -12,6 +13,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/MakFly/pvecli/internal/secret"
 )
 
 // Environment variable names. They match the `pve-api` bash client of the
@@ -56,6 +59,18 @@ type Context struct {
 	TLS      TLS    `yaml:"tls,omitempty"`
 	IaC      IaC    `yaml:"iac,omitempty"`
 	CF       CF     `yaml:"cf,omitempty"`
+
+	// SecretSource names where this context's token secret is kept: "env",
+	// "command", "keyring", or empty to try all three in that order. It is the
+	// *name* of a source. The value itself is still refused here, by Load and
+	// by SetKey alike — nothing about that rule changed.
+	SecretSource string `yaml:"secret_source,omitempty"`
+
+	// SecretCommand is a shell command whose standard output is the secret.
+	// A command is not a credential: it is a pointer to wherever the operator
+	// already keeps one, which is why it may live in a file a credential may
+	// not. `pass show pve/token` in a config file leaks nothing on its own.
+	SecretCommand string `yaml:"secret_command,omitempty"`
 
 	// DetectedVersion is written by `pvecli version`, not by a human. It is
 	// what later stories consult to decide whether an endpoint exists in this
@@ -114,6 +129,8 @@ var WritableKeys = []string{
 	"iac.ansible_dir",
 	"iac.managed_tag",
 	"cf.account_id",
+	"secret_source",
+	"secret_command",
 }
 
 // SetKey writes one dotted key into a context.
@@ -160,6 +177,19 @@ func SetKey(c *Context, key, value string) error {
 	// from the keychain, never written to a file this tool manages.
 	case "cf.account_id":
 		c.CF.AccountID = value
+
+	// Where the secret lives, not what it is. Storing the name of a source is
+	// what lets a fresh shell find the credential without anyone pasting an
+	// export into a dotfile — which is the config-file failure mode this rule
+	// exists to prevent, only unsupervised.
+	case "secret_source":
+		if !secret.Source(value).Valid() {
+			return fmt.Errorf("« secret_source » attend %s (ou une valeur vide pour tout essayer), pas %q",
+				strings.Join(secret.SourceNames, ", "), value)
+		}
+		c.SecretSource = value
+	case "secret_command":
+		c.SecretCommand = value
 
 	// Settable but not advertised in WritableKeys: `pvecli version` writes it,
 	// a human has no reason to.

@@ -58,7 +58,7 @@ Authentification par token d'API, TLS vérifié, sortie table|json|yaml.
 	})
 
 	root.AddCommand(
-		newVersionCmd(), newConfigCmd(), newNodeCmd(), newDoctorCmd(), newLoginCmd(),
+		newVersionCmd(), newConfigCmd(), newNodeCmd(), newDoctorCmd(), newLoginCmd(), newAuthCmd(),
 		newVMCmd(), newLXCCmd(), newGuestCmd(), newStorageCmd(), newTaskCmd(), newClusterCmd(),
 		newAccessCmd(), newBackupCmd(), newDRCmd(), newIaCCmd(),
 		newNetCmd(), newPoolCmd(), newAICmd(), newCFCmd(),

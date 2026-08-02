@@ -164,11 +164,25 @@ Le secret du token n'est jamais affiché, seulement sa présence.`,
 			line("iac.ansible_dir", eff.IaC.AnsibleDir, eff.Sources["iac.ansible_dir"])
 			line("iac.managed_tag", eff.IaC.ManagedTag, eff.Sources["iac.managed_tag"])
 
+			// Where the secret is looked for, and — separately — whether one
+			// was found. A context naming a source that then answers nothing
+			// is the case worth seeing, and folding both into one line hides
+			// exactly that.
+			if eff.SecretSource != "" {
+				line("secret_source", eff.SecretSource, "fichier")
+			}
+			if eff.SecretCommand != "" {
+				line("secret_command", eff.SecretCommand, "fichier")
+			}
+
 			// Presence, never the value — not even a prefix.
-			if eff.TokenSecret != "" {
-				line("token_secret", "<défini>", "env "+config.EnvTokenSecret)
-			} else {
-				line("token_secret", "<non défini>", "à exporter dans "+config.EnvTokenSecret)
+			switch {
+			case eff.SecretErr != nil:
+				line("token_secret", "<erreur>", "voir « pvecli auth status »")
+			case eff.TokenSecret != "":
+				line("token_secret", "<défini>", eff.Sources["token_secret"])
+			default:
+				line("token_secret", "<non défini>", "voir « pvecli auth status »")
 			}
 
 			return w.Flush()
