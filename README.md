@@ -53,6 +53,17 @@ Growing it later is one flag, because a declared VM is **data**, not code:
 pvecli vm declare app-01 --memory 16384 --disk 25 && pvecli iac apply
 ```
 
+`--with` reaches into a service catalogue (`internal/catalog/assets/catalog.yaml`,
+plus one Ansible role per entry), and one of those services is `caddy`: a
+**shared** reverse proxy, not a per-project one. Its Caddyfile is generated and
+deliberately route-free — each project drops its own fragment in
+`/etc/caddy/conf.d/`, written by its own deploy, and Caddy imports whatever is
+there. That fragment is validated *before* it is reloaded, and the proxy is
+reloaded rather than restarted: one project shipping a bad route must not drop
+the connections of every other project sharing the same Caddy. It publishes no
+port in the catalogue, on purpose — Cloudflare terminates the public TLS, and
+this Caddy only ever sees loopback traffic from `cloudflared`.
+
 ## Why this exists
 
 This is a learning project with a product's discipline. The goal is to

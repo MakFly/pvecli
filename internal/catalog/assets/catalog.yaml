@@ -48,3 +48,19 @@ services:
       - key: cloudflared.token
         value: "{{ pvecli_cf_token }}"
         secret: true
+
+  - id: caddy
+    summary: Reverse proxy Caddy partagé, dont les routes viennent des fragments déposés par chaque projet
+    role: caddy
+    # Pas de `ports:` : ce Caddy ne termine rien publiquement — Cloudflare
+    # termine le TLS, cloudflared le rejoint en HTTP simple sur le loopback —
+    # et il n'écoute rien tant qu'aucun fragment n'est déposé dans conf.d/. Le
+    # socket ouvert est décidé par le fragment d'un projet, pas par ce service.
+    # Déclarer 80/443 ici serait un mensonge dans un fichier dont le rôle est
+    # d'être vrai (même choix que `docker` et `cloudflared`, qui n'en déclarent
+    # pas non plus).
+    outputs:
+      - key: caddy
+        value: "{{ pvecli_caddy_version }}"
+      - key: caddy.conf_dir
+        value: "{{ pvecli_caddy_conf_dir }}"

@@ -1,0 +1,27 @@
+# Fichier GÉNÉRÉ par le rôle pvecli « caddy » — toute modification à la main
+# est écrasée au prochain « iac configure ».
+#
+# Ce fichier ne porte volontairement AUCUNE route : chaque projet dépose son
+# fragment dans {{ pvecli_caddy_conf_dir }}, écrit par son propre déploiement
+# à partir de « caddy.routes » de son shuttle.yml. Ne JAMAIS éditer un
+# fragment à la main : il est écrasé au déploiement suivant, et plus personne
+# ne peut dire quel projet le possède.
+{
+	# L'API d'admin, c'est justement ce par quoi passe « systemctl reload
+	# caddy » : Caddy v2 n'a pas de rechargement par signal, ExecReload
+	# appelle « caddy reload », qui parle à cette API. La couper (admin off)
+	# rendrait donc tout changement de route impossible à recharger sans
+	# passer par un restart — qui coupe les connexions de TOUS les projets
+	# qui partagent ce proxy, pas seulement de celui qui a changé. L'adresse
+	# est fixée à la loopback IPv4 plutôt que laissée au résolveur : c'est ce
+	# fichier qui décide ce que l'endpoint bind, pas la façon dont
+	# « localhost » résout sur tel ou tel hôte — ce qui est justement ce qui
+	# rend correcte par construction une sonde à une seule adresse.
+	admin 127.0.0.1:2019
+	# Le TLS public est terminé par Cloudflare ; le trafic arrive du tunnel
+	# en HTTP simple sur le loopback. Un défi ACME ici bouclerait en échec
+	# sur un nom que ce nœud ne sert jamais publiquement.
+	auto_https off
+}
+
+import {{ pvecli_caddy_conf_dir }}/*.caddy
