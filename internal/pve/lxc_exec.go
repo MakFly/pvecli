@@ -175,11 +175,15 @@ func (c *Client) consoleLogin(ctx context.Context, conn *websocket.Conn) error {
 
 	pw := os.Getenv("PVE_LXC_PASSWORD")
 	if pw == "" {
+		// Pas de point final : ST1005. Le message se termine donc sur les deux
+		// commandes qui débloquent, ce qui est de toute façon ce qu'on lit en
+		// dernier quand on est bloqué.
 		return fmt.Errorf("la console du conteneur attend un login mais PVE_LXC_PASSWORD est vide\n\n" +
 			"  export PVE_LXC_PASSWORD=\"…\"\n\n" +
-			"Le mot de passe root du conteneur — jamais un flag (visible dans « ps »). " +
-			"Un conteneur créé sans mot de passe n'a pas de console utilisable : crée-le " +
-			"avec « lxc create … --password-stdin », ou active l'autologin sur la console.")
+			"Le mot de passe root du conteneur — jamais un flag (visible dans « ps »).\n" +
+			"Un conteneur créé sans mot de passe n'a pas de console utilisable ; il faut\n" +
+			"alors le recréer avec « lxc create … --password-stdin », ou activer\n" +
+			"l'autologin sur sa console")
 	}
 
 	user := os.Getenv("PVE_LXC_USER")

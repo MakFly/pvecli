@@ -58,19 +58,19 @@ func newFwShowCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(out, "firewall datacenter : %s\n", onOff(dc))
+			_, _ = fmt.Fprintf(out, "firewall datacenter : %s\n", onOff(dc))
 			if !dc {
-				fmt.Fprintln(out, "  ⚠ tant qu'il est inactif, AUCUNE règle ci-dessous ne filtre.")
+				_, _ = fmt.Fprintln(out, "  ⚠ tant qu'il est inactif, AUCUNE règle ci-dessous ne filtre.")
 			}
-			fmt.Fprintf(out, "firewall du guest   : %s (policy_in=%s policy_out=%s)\n",
+			_, _ = fmt.Fprintf(out, "firewall du guest   : %s (policy_in=%s policy_out=%s)\n",
 				onOff(opts.Enable != 0), orDash(opts.PolicyIn), orDash(opts.PolicyOut))
 			if len(rules) == 0 {
-				fmt.Fprintln(out, "règles              : (aucune)")
+				_, _ = fmt.Fprintln(out, "règles              : (aucune)")
 				return nil
 			}
-			fmt.Fprintln(out, "règles :")
+			_, _ = fmt.Fprintln(out, "règles :")
 			for _, r := range rules {
-				fmt.Fprintf(out, "  [%d] %s %s proto=%s dport=%s source=%s %s\n",
+				_, _ = fmt.Fprintf(out, "  [%d] %s %s proto=%s dport=%s source=%s %s\n",
 					r.Pos, r.Type, r.Action, orDash(r.Proto), orDash(r.Dport), orDash(r.Source), r.Comment)
 			}
 			return nil
@@ -112,13 +112,13 @@ tout ceci prenne effet.`,
 			}
 
 			if changed {
-				fmt.Fprintln(out, "net0 : firewall=1 posé")
+				_, _ = fmt.Fprintln(out, "net0 : firewall=1 posé")
 			}
-			fmt.Fprintf(out, "firewall du guest %d : actif, policy_in=%s\n", vmid, policyIn)
+			_, _ = fmt.Fprintf(out, "firewall du guest %d : actif, policy_in=%s\n", vmid, policyIn)
 
 			dc, err := client.ClusterFirewallEnabled(ctx)
 			if err == nil && !dc {
-				fmt.Fprintln(cmd.ErrOrStderr(),
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
 					"⚠ le firewall DATACENTER est inactif — rien ne filtre tant qu'il n'est pas activé.\n"+
 						"  active-le en conscience (il peut couper l'accès au nœud) : Datacenter → Firewall → Options.")
 			}
@@ -144,7 +144,7 @@ func newFwDisableCmd() *cobra.Command {
 			if err := client.SetLXCFwOptions(cmd.Context(), node, vmid, v); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "firewall du guest %d : désactivé\n", vmid)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "firewall du guest %d : désactivé\n", vmid)
 			return nil
 		},
 	}
@@ -186,7 +186,7 @@ func newFwAllowCmd() *cobra.Command {
 			if err := client.AddLXCFwRule(cmd.Context(), node, vmid, v); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "règle ajoutée : ACCEPT %s/%s depuis %s\n", proto, dport, orDash(source))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "règle ajoutée : ACCEPT %s/%s depuis %s\n", proto, dport, orDash(source))
 			return nil
 		},
 	}
@@ -215,7 +215,7 @@ func newFwRuleRmCmd() *cobra.Command {
 			if err := client.DeleteLXCFwRule(cmd.Context(), node, vmid, pos); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "règle %d supprimée\n", pos)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "règle %d supprimée\n", pos)
 			return nil
 		},
 	}
@@ -254,7 +254,7 @@ func newIPSetCmd() *cobra.Command {
 				return err
 			}
 			for _, s := range sets {
-				fmt.Fprintf(cmd.OutOrStdout(), "%-20s %s\n", s.Name, s.Comment)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-20s %s\n", s.Name, s.Comment)
 			}
 			return nil
 		},
@@ -276,7 +276,7 @@ func newIPSetCmd() *cobra.Command {
 			if err := client.CreateIPSet(cmd.Context(), args[0], comment); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "ipset %q créé\n", args[0])
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "ipset %q créé\n", args[0])
 			return nil
 		},
 	})
@@ -295,7 +295,7 @@ func newIPSetCmd() *cobra.Command {
 				return err
 			}
 			for _, e := range entries {
-				fmt.Fprintf(cmd.OutOrStdout(), "%-20s %s\n", e.CIDR, e.Comment)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-20s %s\n", e.CIDR, e.Comment)
 			}
 			return nil
 		},
@@ -317,7 +317,7 @@ func newIPSetCmd() *cobra.Command {
 			if err := client.AddIPSetEntry(cmd.Context(), args[0], args[1], comment); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s ajouté à %q\n", args[1], args[0])
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s ajouté à %q\n", args[1], args[0])
 			return nil
 		},
 	})
@@ -334,7 +334,7 @@ func newIPSetCmd() *cobra.Command {
 			if err := client.DelIPSetEntry(cmd.Context(), args[0], args[1]); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s retiré de %q\n", args[1], args[0])
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s retiré de %q\n", args[1], args[0])
 			return nil
 		},
 	})
