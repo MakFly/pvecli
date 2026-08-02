@@ -1,0 +1,152 @@
+---
+# Caddy depuis le dépôt officiel Cloudsmith, en `deb822_repository` plutôt
+# qu'en `curl | gpg --dearmor` à la main — même idiome que le rôle `docker`.
+# python3-debian n'est pas décoratif : c'est ce dont deb822_repository a
+# besoin côté invité pour écrire un dépôt au format moderne.
+- name: Installer les prérequis du dépôt Caddy
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - apt-transport-https
+      - curl
+      - gpg
+      - debian-keyring
+      - debian-archive-keyring
+      - python3-debian
+    state: present
+    update_cache: true
+
+- name: Créer le dossier des clés de dépôt
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+# force: false — sans lui, get_url refait la requête à chaque passage et peut
+# rapporter « changed » selon ce que le serveur répond sur les en-têtes de
+# cache. L'idempotence est mesurée ici, pas supposée.
+- name: Poser la clé du dépôt Caddy
+  ansible.builtin.get_url:
+    url: "{{ pvecli_caddy_gpg_url }}"
+    dest: "{{ pvecli_caddy_keyring }}"
+    mode: "0644"
+    force: false
+
+# edge-01 a reçu ce dépôt à la main, écrit dans ce fichier. Le laisser à côté
+# du dépôt déclaré ci-dessous ferait apparaître Caddy deux fois dans les
+# sources d'apt, et « apt update » avertirait « configured multiple times ».
+# Le supprimer est ce qui fait converger edge-01 vers l'état d'une VM neuve.
+- name: Retirer le dépôt Caddy posé à la main (convergence avec une install fraîche)
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/caddy-stable.list
+    state: absent
+
+- name: Déclarer le dépôt Caddy
+  ansible.builtin.deb822_repository:
+    name: caddy
+    types: [deb]
+    uris: "{{ pvecli_caddy_repo_uri }}"
+    suites: "{{ pvecli_caddy_repo_suite }}"
+    components: [main]
+    signed_by: "{{ pvecli_caddy_keyring }}"
+    enabled: true
+    state: present
+
+- name: Installer Caddy
+  ansible.builtin.apt:
+    name: caddy
+    state: present
+    update_cache: true
+
+- name: Créer le dossier des fragments de route
+  ansible.builtin.file:
+    path: "{{ pvecli_caddy_conf_dir }}"
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+
+# `validate` porte sur le fichier CANDIDAT, avant qu'il ne remplace celui en
+# place : un Caddyfile cassé n'est donc jamais écrit et jamais rechargé, et le
+# proxy en service pour tous les projets reste debout.
+- name: Déployer le Caddyfile
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: /etc/caddy/Caddyfile
+    mode: "0644"
+    validate: "caddy validate --adapter caddyfile --config %s"
+  notify: Recharger Caddy
+
+- name: Démarrer Caddy au boot
+  ansible.builtin.systemd_service:
+    name: caddy
+    state: started
+    enabled: true
+
+# Le Caddyfile sur disque porte déjà `admin 127.0.0.1:2019`, mais le processus
+# en cours d'exécution a été démarré — potentiellement avant ce rôle, comme
+# sur edge-01 — sous un ancien `admin off` : il n'expose alors aucun socket
+# admin. Or `caddy reload` est lui-même un client de l'API admin : il ne peut
+# jamais être ce qui *crée* le point d'entrée dont il a besoin pour parler à
+# l'instance. La seule question qui compte est donc : cette instance
+# répond-elle sur l'admin API, oui ou non ? Le restart n'a lieu que si la
+# sonde échoue : c'est le seul cas qui prouve que l'instance tourne encore
+# sous l'ancien `admin off`. Ce n'est délibérément PAS un « reload, et si ça
+# échoue on restart » : un reload échoue aussi quand un fragment de projet
+# est syntaxiquement valide mais sémantiquement refusé par Caddy, et
+# redémarrer dans ce cas couperait les connexions de tous les projets pour,
+# au final, échouer quand même. La sonde distingue « je ne peux pas parler à
+# l'instance » de « l'instance a refusé cette config » — seul le premier cas
+# justifie un restart. Le coût de la transition `admin off` → `admin
+# 127.0.0.1:2019` est donc payé une seule fois, ici, plutôt que de rester une
+# manip manuelle que personne ne pense à refaire : au run suivant la sonde
+# trouve le socket et cette tâche ne change rien, ce qui garde
+# `--idempotence` à `changed=0`. La sonde ne cible que `127.0.0.1` parce que
+# le Caddyfile fixe l'endpoint là : mesuré sur edge-01, l'admin API ne
+# bindait que la loopback IPv4 (même en résolvant « localhost »), donc une
+# jambe `::1` aurait échoué à chaque passage et redémarré Caddy à chaque
+# exécution — une rupture d'idempotence pire que le bug d'origine.
+- name: S'assurer que l'admin API de Caddy répond, redémarrer sinon
+  block:
+    - name: Sonder si l'instance Caddy en cours expose son admin API
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 2019
+        timeout: 2
+      changed_when: false
+  rescue:
+    - name: Redémarrer Caddy pour faire naître l'admin API (transition admin off → admin 127.0.0.1:2019)
+      ansible.builtin.systemd_service:
+        name: caddy
+        state: restarted
+
+# Le `validate` de la tâche précédente ne joue que quand le template est
+# rendu. Ce qui pourrit réellement, c'est conf.d/ : cette tâche revalide la
+# configuration entière, fragments compris, à chaque passage — et un échec
+# ici arrête le play AVANT que les handlers ne se déclenchent, donc un
+# fragment cassé ne peut jamais être rechargé dans un proxy en service.
+- name: Revalider la configuration complète, fragments compris
+  ansible.builtin.command:
+    cmd: caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
+  changed_when: false
+
+- name: Relire la version réellement installée
+  ansible.builtin.command:
+    cmd: caddy version
+  register: pvecli_caddy_installed
+  changed_when: false
+
+# « caddy version » affiche « v2.11.4 h1:XKxk… » — le premier mot est le
+# numéro de version, le reste est un hash de build sans intérêt ici.
+- name: Extraire le numéro de version
+  ansible.builtin.set_fact:
+    pvecli_caddy_version: "{{ pvecli_caddy_installed.stdout.split(' ')[0] }}"
+
+- name: Publier les sorties
+  ansible.builtin.include_role:
+    name: pvecli_publish
+  vars:
+    pvecli_publish_service: caddy
+    pvecli_publish_values:
+      caddy: "{{ pvecli_caddy_version }}"
+      caddy.conf_dir: "{{ pvecli_caddy_conf_dir }}"

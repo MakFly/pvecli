@@ -1,0 +1,15 @@
+---
+# Le dossier où chaque projet dépose son fragment de route. Le rôle le crée et
+# le laisse vide ; c'est le déploiement d'un projet (pas ce rôle) qui y écrit.
+pvecli_caddy_conf_dir: /etc/caddy/conf.d
+
+# La clé du dépôt Cloudsmith, au format armoré : apt l'accepte directement en
+# `signed_by`, pas besoin d'un `gpg --dearmor` séparé.
+pvecli_caddy_keyring: /etc/apt/keyrings/caddy.asc
+pvecli_caddy_gpg_url: https://dl.cloudsmith.io/public/caddy/stable/gpg.key
+pvecli_caddy_repo_uri: https://dl.cloudsmith.io/public/caddy/stable/deb/debian
+pvecli_caddy_repo_suite: any-version
+
+# `admin 127.0.0.1:2019` et `auto_https off` ne sont pas des variables : ce
+# sont des décisions fixes du rôle, documentées dans le Caddyfile lui-même,
+# pas des réglages qu'on voudrait faire varier d'une VM à l'autre.

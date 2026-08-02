@@ -29,6 +29,13 @@
   roles:
     - postgresql
 
+- name: Caddy
+  hosts: svc_caddy
+  become: true
+  gather_facts: true
+  roles:
+    - caddy
+
 - name: Cloudflare Tunnel
   hosts: svc_cloudflared
   become: true

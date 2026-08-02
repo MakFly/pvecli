@@ -1,0 +1,12 @@
+---
+# Reload, pas restart : un restart coupe les connexions en cours de TOUS les
+# projets qui partagent ce proxy, pas seulement de celui dont le fragment a
+# changé. `ExecReload` de systemd appelle « caddy reload », qui passe par
+# l'API d'admin (c'est pour ça que le Caddyfile la lie à 127.0.0.1:2019 au
+# lieu de la couper) et refuse lui-même une configuration invalide, en
+# gardant celle en service — un deuxième filet après le `validate` de la
+# tâche qui écrit le Caddyfile.
+- name: Recharger Caddy
+  ansible.builtin.systemd_service:
+    name: caddy
+    state: reloaded

@@ -5,6 +5,157 @@
 
 ---
 
+### PVX-078 — `caddy` au catalogue : le reverse proxy partagé cesse d'être posé à la main
+
+**Taille** S · **Type** ⚙ · **Statut** ✅ livré — 2026-08-02
+
+**Le trou constaté** — `edge-01` (LXC VMID 222, `192.168.1.222`, Debian 13
+trixie) a reçu Caddy à la main : dépôt Cloudsmith ajouté par un `curl | gpg
+--dearmor` suivi d'un `.list` écrit au clavier, service activé au clavier. Le
+catalogue de services (`internal/catalog/assets/catalog.yaml`) n'avait pas de
+rôle `caddy`, donc la machine n'était pas reproductible — et ne pouvait pas
+porter le tag `svc_caddy` sans créer un groupe Ansible sans aucun play
+derrière lui, exactement la dette de métadonnée mensongère que ce labo vient
+de passer une journée à éliminer. C'est cette classe de dette que
+`TestEveryServiceHasAPlay` rend désormais impossible à réintroduire en
+silence.
+
+**Livré** : un service `caddy` complet — manifeste, rôle Ansible, play, tests.
+- `internal/catalog/assets/catalog.yaml` : entrée `caddy`, sorties `caddy`
+  (version installée) et `caddy.conf_dir` (dossier des fragments de route).
+- `internal/catalog/assets/ansible/roles/caddy/` : `defaults`, `tasks`,
+  `handlers`, `templates/Caddyfile.j2`.
+- `internal/catalog/assets/ansible/pvecli.yml` : play « Caddy », inséré entre
+  PostgreSQL et Cloudflare Tunnel — l'ingress doit exister avant le connecteur
+  qui l'expose.
+- `internal/catalog/catalog_test.go` : `TestEveryServiceHasAPlay`,
+  `TestEveryReferencedTemplateIsShipped`,
+  `TestEveryDeclaredOutputIsPublishedByItsRole`, `TestEmbeddedTagsAreSorted`.
+
+**Pas de `ports:` dans le manifeste.** Ce Caddy ne termine rien publiquement —
+Cloudflare termine le TLS, `cloudflared` le rejoint en HTTP simple sur le
+loopback — et il n'écoute **rien du tout** tant qu'aucun projet n'a déposé de
+fragment dans `conf.d/` (vérifié sur `edge-01` : `ss -lntp` n'y montre aucun
+Caddy). Déclarer 80/443 aurait été un mensonge dans un fichier dont le travail
+est d'être vrai — même choix que `docker` et `cloudflared`, qui n'en déclarent
+pas non plus. Pas de `requires:` non plus : Caddy est utile sans `cloudflared`
+et réciproquement.
+
+**`deb822_repository` + suppression du `.list` écrit à la main.** Le rôle
+suit l'idiome déjà posé par `roles/docker` : `get_url` la clé armorée dans
+`/etc/apt/keyrings/`, puis `deb822_repository` — apt accepte un `.asc` armoré
+en `signed_by`, pas besoin de `gpg --dearmor`. Il supprime en plus
+`/etc/apt/sources.list.d/caddy-stable.list`, sans quoi une `edge-01` convergée
+porterait le dépôt Caddy deux fois et `apt update` avertirait « configured
+multiple times » ; c'est cette suppression qui fait converger `edge-01` vers
+l'état d'une machine installée par le rôle depuis le début.
+
+**Reload, pas restart — sauf que la première version du rôle ne pouvait pas
+recharger du tout.** Le rôle avait été écrit avec `admin off`, copié tel quel
+de l'installation à la main d'`edge-01`. Le premier run réel contre
+`edge-01` (LXC VMID 222, `192.168.1.222`, Debian 13 trixie, Caddy 2.11.4, sans
+trafic) a convergé 4 tâches puis échoué sur le handler de reload —
+`PLAY RECAP` : `ok=14 changed=4 failed=1`. `journalctl -u caddy` :
+
+```
+Aug 02 16:30:02 edge-01 caddy[2189]: Error: sending configuration to instance:
+performing request: Post "http://localhost:2019/load": dial tcp [::1]:2019:
+connect: connection refused
+```
+
+Caddy v2 n'a pas de rechargement par signal : `ExecReload` du paquet Debian
+appelle `caddy reload`, qui est un client de l'API d'admin. `admin off` ne
+laisse donc **aucun** moyen de recharger — seul un restart applique un
+changement, et un restart sur un proxy partagé coupe les connexions en cours
+de TOUS les projets, pas seulement de celui dont le fragment a changé.
+Autrement dit, `edge-01` installée à la main était, sans que personne s'en
+aperçoive, un proxy sur lequel aucune route ne pouvait jamais être ajoutée
+sans couper tout le trafic en cours. Le rôle corrige ce défaut latent en
+liant l'API d'admin au loopback IPv4 (`admin 127.0.0.1:2019`) plutôt que de la
+couper : injoignable depuis le réseau, mais toujours là pour le reload local
+de systemd. Détail rassurant : le reload raté n'a pas fait tomber le proxy —
+`systemctl is-active caddy` est resté `active`, la config en service n'a pas
+bougé.
+
+**`caddy validate` tourne deux fois, pas une.** La tâche `template` valide le
+Caddyfile *candidat* avant de l'écrire — un fichier cassé n'est donc jamais
+posé et jamais rechargé. Mais elle ne se déclenche que quand ce template est
+rendu, et ce qui pourrit réellement dans le temps, c'est `conf.d/`, rempli par
+les déploiements des projets et hors du contrôle de ce rôle. Une seconde tâche
+revalide donc la configuration complète, fragments compris, à chaque passage —
+et son échec arrête le play **avant** que les handlers ne se déclenchent, donc
+un fragment cassé ne peut jamais atteindre un proxy en service.
+
+**Écrire `admin 127.0.0.1:2019` dans le fichier ne suffit pas — l'instance déjà
+en cours l'ignore.** Ce premier correctif a été appliqué et le nouveau
+Caddyfile écrit sur `edge-01` ; le run suivant a de nouveau échoué :
+`PLAY RECAP` : `ok=14 changed=1 failed=1`, avec `journalctl -u caddy` montrant
+le même refus de connexion sur `[::1]:2019`. Raison : le *fichier* a changé,
+mais le *processus* tournait encore sous l'ancien `admin off`, donc sans aucun
+socket admin à joindre — et `caddy reload` étant lui-même un client de cette
+API, il ne peut jamais être ce qui la fait naître. Le rôle ajoute donc une
+sonde (`wait_for` sur `127.0.0.1` seul — mesuré sur `edge-01` : l'admin API ne
+bind que la loopback IPv4, même quand `::1` existe sur l'hôte), et ne
+redémarre Caddy que si cette sonde échoue — un `block`/`rescue`, pas un
+`when` sur un résultat bouclé, un restart, une fois, pour payer la transition
+`admin off` → `admin 127.0.0.1:2019`, plutôt que de laisser cette manip à la
+mémoire de quelqu'un. Ce n'est pas un « reload, et restart si ça échoue » :
+un reload échoue aussi quand un fragment de projet est sémantiquement refusé,
+et redémarrer dans ce cas couperait tous les projets pour rien — seule
+l'injoignabilité de l'instance justifie le restart. Au run suivant, la sonde
+trouve le socket et ne change rien, ce qui garde `--idempotence` à `changed=0`.
+
+**Preuve d'idempotence — jouée contre `edge-01`, pas déduite.** L'hôte a
+d'abord été remis dans son état d'installation manuelle (Caddyfile écrit à la
+main avec `admin off`, `caddy-stable.list` restauré, `caddy.sources` et la clé
+`/etc/apt/keyrings/caddy.asc` retirées, `systemctl restart caddy` pour que le
+processus tourne bien sous `admin off`), afin que le premier passage parte du
+vrai point de départ. Inventaire d'un seul hôte, plus `--limit edge-01` : les
+plays `svc_docker` / `svc_postgresql` / `svc_cloudflared` ne trouvent aucun
+hôte et sont passés.
+
+```
+# 1er passage — convergence depuis l'installation manuelle
+edge-01  : ok=16   changed=6    unreachable=0    failed=0    skipped=1    rescued=1    ignored=0
+
+# 2e passage — rien à faire
+edge-01  : ok=15   changed=0    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0
+```
+
+Les 6 changements du premier passage sont exactement les écarts entre l'install
+à la main et le rôle : la clé de dépôt posée sous `/etc/apt/keyrings/`, la
+source `.list` manuelle retirée, le dépôt redéclaré en `deb822`, le Caddyfile
+regénéré, le restart unique qui fait naître l'admin API, puis le reload du
+handler. Le `rescued=1` est la sonde d'admin API qui échoue et déclenche ce
+restart — il ne réapparaît pas au second passage.
+
+État final relu sur l'hôte : `caddy` `active`, admin sur `127.0.0.1:2019`,
+`/etc/apt/sources.list.d/` ne contient plus que `caddy.sources`, et
+`caddy validate` ne journalise plus l'avertissement « Caddyfile input is not
+formatted ».
+
+**Le chemin d'échec a été joué, pas seulement raisonné.** Un fragment
+volontairement cassé (`conf.d/zz-broken.caddy`) a été déposé sur `edge-01`,
+dans les deux états qui comptent :
+
+- *instance déjà convergée* — la tâche « Revalider la configuration complète »
+  échoue (`ok=11 changed=0 failed=1`) en nommant le fichier et la ligne fautifs
+  (`/etc/caddy/conf.d/zz-broken.caddy:1 import chain [...]`), le play s'arrête
+  **avant** les handlers, et le proxy reste `active` sur son ancienne
+  configuration valide ;
+- *instance encore sous `admin off`, celle où le rôle voudrait redémarrer* —
+  c'est le `validate` de la tâche `template` qui échoue le premier
+  (`ok=8 changed=0 failed=1`), sur le fichier **candidat**, donc avant même la
+  sonde et le restart. Le proxy reste `active`.
+
+C'est ce qui rend l'ordre des tâches sûr : le seul cas où le rôle redémarre
+Caddy est un cas où la configuration complète a déjà été validée sur le
+candidat. Un fragment cassé ne peut donc ni être rechargé, ni faire tomber au
+restart un proxy qui tournait. Après retrait du fragment, l'hôte reconverge
+(`changed=3`) puis retombe à `changed=0`.
+
+---
+
 ### PVX-076 — Jobs de sauvegarde PLANIFIÉS (`/cluster/backup`)
 
 **Taille** M · **Type** ⚙ · **Statut** ✅ livré — 2026-08-02
