@@ -317,6 +317,45 @@ func TestStorageDefByIDSurfacesTheNodes500OnAnUnknownName(t *testing.T) {
 	}
 }
 
+// La capture réelle de GET /storage/{storage} REPÈTE bien « storage », mais le
+// détail d'un objet demandé par son nom ne le répète pas toujours sur cette API
+// — /access/users/{userid} et /cluster/backup/{id} ne le font pas. Le repli
+// existe pour ça, et sans lui le post-read afficherait une ligne « stockage »
+// vide sur une écriture qui a pourtant réussi.
+func TestStorageDefByIDFillsBackAnAbsentIdentifier(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"type":"nfs","content":"backup"}}`))
+	})
+
+	def, err := c.StorageDefByID(context.Background(), "nas-backup")
+	if err != nil {
+		t.Fatalf("StorageDefByID: %v", err)
+	}
+	if def.Storage != "nas-backup" {
+		t.Errorf("storage = %q — l'identifiant demandé doit être remis", def.Storage)
+	}
+}
+
+// Une liste illisible doit remonter en ERREUR, jamais en liste vide : « aucun
+// stockage déclaré » et « je n'ai pas pu lire » mènent à des décisions opposées,
+// et la première est la version rassurante de la seconde.
+func TestStorageDefsSurfaceAFailureRatherThanAnEmptyList(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"data":null,"message":"Permission check failed\n"}`))
+	})
+
+	defs, err := c.StorageDefs(context.Background())
+	if err == nil {
+		t.Fatal("un 403 doit remonter une erreur")
+	}
+	if defs != nil {
+		t.Errorf("aucune liste ne doit être rendue avec l'erreur, got %v", defs)
+	}
+}
+
 func TestStorageDefTargetNamesWhereTheBytesLand(t *testing.T) {
 	for name, tc := range map[string]struct {
 		def  StorageDef
