@@ -418,6 +418,28 @@ The listing also reads `remove`, the switch that arms the retention. A policy
 written but disarmed shows up as `keep-last=3 (INERTE : remove=0)` rather than
 as a policy, because the reassuring version of that line is the dangerous one.
 
+Those scheduled jobs need `Sys.Modify` — and among the node's built-in roles,
+only `Administrator` carries it. Since an ACL grants a *role* and never a
+privilege, the least-privilege way out is a custom role:
+
+```sh
+pvecli access role add ops-backup --privs Sys.Audit,Sys.Modify
+pvecli access acl set --path / --role ops-backup --token automation@pve!pvectl
+pvecli access role set ops-backup --add-priv Datastore.Allocate   # union, computed here
+pvecli access role rm  ops-backup                 # lists who loses the rights first
+```
+
+`--add-priv`/`--rm-priv` read the role, merge locally and send the **full**
+list: the API's `append` would compute the union node-side, so `--dry-run` could
+not show the result — and removing a privilege has no API primitive at all.
+Losing a privilege is treated as destructive, because every identity holding the
+role loses it without any ACL being re-read.
+
+The name cannot start with `PVE`: that namespace is reserved, and the refusal
+comes from the node itself — `create_role` rejects `/^PVE/i`, **case
+insensitively**. So a custom role can *not* be called `PVEBackupJobAdmin`; call
+it `ops-backup`. `Administrator` and `NoAccess` are taken too.
+
 A `403` is an information, not an obstacle:
 
 ```sh
@@ -466,6 +488,31 @@ the node's uplink, not yours. The checksum is not decoration — the image you
 drop today becomes the template you clone tomorrow, and an alteration in transit
 propagates to every clone without ever announcing itself. Omit it and the
 command says so; get it wrong and the node deletes what it downloaded.
+
+Declaring **where** the cluster may write is a different family — `storage def`,
+in a sub-name, because `storage rm <storage> <volid>` already deletes a
+*volume*: a one-argument `storage rm <storage>` would silently delete the whole
+storage definition when you forgot the volid.
+
+```sh
+pvecli storage def ls                       # warns when no backup target lives off-node
+pvecli storage def add nas-backup --type nfs \
+    --server 192.168.1.50 --export /export/pve --content backup
+export PVE_STORAGE_PASSWORD="…"             # cifs and pbs only
+pvecli storage def add pbs-infra --type pbs --server pbs.lan \
+    --datastore archives --username archiver@pbs --content backup
+pvecli storage def set nas-backup --disable # suspend, reversible
+pvecli storage def rm nas-backup            # removes the CONFIG ENTRY, not the data
+```
+
+The password never travels as a flag: it comes from `PVE_STORAGE_PASSWORD` or a
+masked prompt, because a flag is visible in `ps` to every user of the machine
+and stays in the shell history. `rm` deletes the entry in
+`/etc/pve/storage.cfg` — the archives on the share stay where they are — but it
+first names every scheduled backup job writing there, since such a job then
+fails on every run, silently. These writes need `Datastore.Allocate` on
+`/storage`, not `Sys.Modify`: the built-in `PVEDatastoreAdmin` role already
+carries it.
 
 ## Configuration
 

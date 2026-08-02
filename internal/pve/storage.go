@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"net/url"
-	"strings"
 )
 
 // Storage is one entry of GET /nodes/{node}/storage.
@@ -28,22 +27,14 @@ type Storage struct {
 }
 
 // ContentTypes splits the comma-separated content declaration.
-func (s Storage) ContentTypes() []string {
-	if s.Content == "" {
-		return nil
-	}
-	return strings.Split(s.Content, ",")
-}
+//
+// The splitting lives in storagedef.go, with the reason it cannot be a byte
+// comparison: PVE does not guarantee the ORDER of that list. One shared helper,
+// so the two families cannot drift apart on it.
+func (s Storage) ContentTypes() []string { return splitContentTypes(s.Content) }
 
 // Accepts reports whether this storage takes the given content type.
-func (s Storage) Accepts(content string) bool {
-	for _, c := range s.ContentTypes() {
-		if strings.EqualFold(strings.TrimSpace(c), content) {
-			return true
-		}
-	}
-	return false
-}
+func (s Storage) Accepts(content string) bool { return contentAccepts(s.Content, content) }
 
 // Storages lists the storages visible from a node, with their live usage.
 //

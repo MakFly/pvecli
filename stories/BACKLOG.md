@@ -153,6 +153,142 @@ Caddy est un cas où la configuration complète a déjà été validée sur le
 candidat. Un fragment cassé ne peut donc ni être rechargé, ni faire tomber au
 restart un proxy qui tournait. Après retrait du fragment, l'hôte reconverge
 (`changed=3`) puis retombe à `changed=0`.
+### PVX-079 — DÉFINITIONS de stockage (`/storage`)
+
+**Taille** M · **Type** ⚙ · **Statut** ✅ livré — 2026-08-02
+
+En tant qu'opérateur, je veux **déclarer** un stockage depuis pvecli, parce que
+tant qu'aucun n'accepte le contenu `backup` ailleurs que sur le disque du nœud,
+la seule destination possible est `local` — et une sauvegarde qui vit sur le
+disque de ce qu'elle protège meurt avec lui.
+
+**Le trou constaté** — suite directe de PVX-076 : `backup job create --storage`
+exige une destination, et le lab n'en a aucune de valable (capture réelle
+`testdata/storage-defs.json` : `local` en `dir`, `local-lvm` en `lvmthin`).
+`pvecli storage` ne pilotait que le **contenu** d'un stockage
+(`ls|content|download-url|upload|rm <storage> <volid>`) ; `/storage`, l'endpoint
+de **cluster** qui porte les définitions, n'était couvert par aucun endpoint.
+
+**Livré** : `internal/pve/storagedef.go` + `cmd/storage_def.go`.
+- `pvecli storage def ls|show|add|set|rm` (`list`, `create`, `update`, `delete`
+  en alias).
+- 5 endpoints ajoutés à `endpoints.go` et à `docs/API-MAP.md`.
+
+**Nommage** — `storage def`, dans un **sous-nom**, et c'est une décision de
+sécurité, pas de style. `pvecli storage rm <storage> <volid>` **existe déjà** et
+supprime un VOLUME. Poser à côté un `storage rm <storage>` à un seul argument
+fabriquerait le pire piège possible : **oublier le volid ne rendrait pas une
+erreur, ça supprimerait la définition du stockage entier au lieu d'une ISO.**
+Le précédent du dépôt est `backup job` face à `backup run` — le parent agit sur
+le contenu, le sous-nom décrit l'objet. `add` (alias `create`) comme
+`access role add`, `set` (alias `update`) comme partout, `rm` (alias `delete`)
+de même.
+
+**Sept pièges du schéma, gérés — chacun couvert par un test :**
+1. **`export`, `share`, `datastore`, `path` et `type` sont POST-only.** Ils
+   n'existent pas dans le schéma du PUT : un stockage ne se **repointe pas**
+   ailleurs. `set` refuse ces quatre drapeaux **localement**, avant tout appel,
+   en nommant la sortie (supprimer puis recréer) et en rappelant que `rm`
+   n'efface aucune donnée. Sans ça, le nœud rend un 400 qui ne dit pas pourquoi.
+2. **`GET /storage/{storage}` répond 500 sur un nom inconnu**, pas 404
+   (`storage 'x' does not exist`). Le motif du dépôt « une erreur au pre-read =
+   l'identifiant est libre » (`access user create`, `access token create`) reste
+   juste, mais l'erreur brute parle d'erreur **interne du nœud** pour un simple
+   nom absent — c'est écrit dans l'aide de `show`.
+3. **L'ordre de `content` n'est pas stable.** Le même `local` rend
+   `backup,import,vztmpl,iso` par l'index et `import,backup,vztmpl,iso` par le
+   détail, à une seconde d'intervalle — les deux captures le prouvent. Toute
+   comparaison octet à octet conclurait à un changement inexistant :
+   `pve.SameContentTypes` compare des **ensembles**, et `Storage.ContentTypes()`
+   / `Accepts()` ont été rebranchés dessus plutôt que dupliqués.
+4. **Le `digest` du PUT couvre TOUT `/etc/pve/storage.cfg`**, pas l'entrée
+   seule : les deux stockages du lab portent le même `921a2c39…`. Il est renvoyé
+   depuis le pre-read — un changement sur **n'importe quel** stockage entre la
+   lecture et l'écriture fait donc échouer le PUT. L'échec est bruyant et
+   rejouable : c'est la garde anti-écrasement concurrent voulue par PVE, pas un
+   défaut.
+5. **`content` est REMPLACÉ, pas fusionné.** Contrairement à `prune-backups`
+   d'un job (PVX-076), l'unité du drapeau CLI est ici **la même** que celle de
+   l'API — une chaîne à virgules pour une chaîne à virgules. C'est donc un
+   remplacement honnête et non un écrasement silencieux : aucun read-merge-write
+   n'est nécessaire, mais l'aide de `set` dit qu'il faut écrire la liste
+   complète.
+6. **`prune-backups` d'un stockage est une option string**, exposée en UN
+   drapeau `--prune-backups "keep-last=3,keep-daily=7"` — donc remplacement de
+   la politique entière, et c'est dit. Six drapeaux `--keep-*` auraient rejoué
+   la classe d'erreur « option-string clobber » déjà payée sur `backup job`.
+7. **`password` existe sur le POST et sur le PUT.** `service.redactValue` le
+   masque déjà dans le plan ; c'est **vérifié par un test**, pas supposé — la
+   sortie complète (stdout ET stderr) est fouillée pour le secret.
+
+**Le mot de passe — décision D1 appliquée telle quelle.** Ni drapeau, ni fichier
+de configuration : `PVE_STORAGE_PASSWORD`, sinon saisie masquée via
+`golang.org/x/term` si le terminal le permet, sinon refus explicite. Un drapeau
+serait visible dans `ps` par tout utilisateur de la machine et resterait dans
+l'historique du shell. Le modèle est recopié de `resolveNewPassword`
+(`cmd/access.go`). Il est **exigé** pour `pbs` (sans lui la sauvegarde ne part
+jamais, et l'échec est silencieux et différé) et **optionnel** pour `cifs`, où
+`--guest` monte le partage en invité — sur le modèle de `--no-password` de
+`access user create` : se passer d'un secret doit être un choix énoncé. Sur
+`set`, `--password` est un **booléen** qui déclenche la resaisie.
+
+**Deux exigences plus strictes que l'API, pour la même raison :**
+- **`--content` est obligatoire** alors que l'API le donne pour optionnel. Sans
+  lui PVE choisit un défaut qui peut très bien ne pas contenir `backup`, et on
+  obtient un stockage d'apparence normale sur lequel aucune sauvegarde
+  n'atterrira. Même logique que la rétention exigée par `backup job create`.
+- **Un `pbs` déclaré avec autre chose que `backup` est refusé.** Le nœud
+  l'accepterait et n'y écrirait jamais rien : un stockage définitivement vide et
+  d'apparence saine.
+
+**Le cœur de `rm`.** L'appel supprime l'**entrée de configuration**, pas les
+données : archives NFS/CIFS et snapshots PBS restent en place, redéclarer le
+stockage retrouve son contenu. C'est le miroir exact de `backup job rm`. Ce qui
+casse, ce sont les **jobs qui écrivaient dessus** : le pre-read lit
+`/cluster/backup` et les nomme un par un, parce qu'un job privé de destination
+échoue à chaque exécution, en silence. Cette lecture exige `Sys.Audit` sur `/` ;
+un 403 **n'échoue pas** la suppression, il annonce que la vérification n'a pas
+pu être faite — et que ce n'est pas la preuve qu'aucun job n'en dépend.
+L'alternative réversible (`storage def set <id> --disable`) est proposée.
+
+**La même garde sur `set`, ajoutée en relecture.** Elle manquait, et son absence
+rendait `rm` contournable par le chemin le plus banal : retirer `backup` de
+`--content`, ou passer `--disable`, a **exactement** la conséquence d'une
+suppression — les jobs planifiés continuent d'exister, leur prochaine exécution
+reste annoncée, et ils échouent à chaque passage. `set` marque donc ces deux
+modifications `Destructive` et nomme les jobs concernés, comme `rm`. La
+comparaison se fait avec `Accepts()`, jamais sur la chaîne : l'ordre de `content`
+n'est pas stable.
+
+**Un défaut trouvé en relecture, et corrigé.** `--password` est un booléen, mais
+il était lu comme les autres drapeaux (`Flags().Changed`) : un
+`storage def set <id> --password=false` marquait donc la clé comme modifiée et
+envoyait `password=` — c'est-à-dire **effaçait** le mot de passe enregistré, pour
+avoir demandé le contraire. Le partage aurait cessé de se monter sans que rien
+ne dise pourquoi. Seul un `--password` vrai déclenche désormais l'envoi ; un test
+fige les deux cas.
+
+**La bonne nouvelle du moindre privilège** — les trois écritures exigent
+**`Datastore.Allocate` sur `/storage`**, et **pas** `Sys.Modify`. Le rôle
+intégré `PVEDatastoreAdmin` le porte déjà : contrairement à `/cluster/backup`
+(PVX-076/077), aucun rôle sur mesure n'est nécessaire. C'est dit dans l'aide.
+
+**Portée volontairement restreinte** — seuls `nfs`, `cifs`, `pbs` et `dir` sont
+acceptés par `--type`. Ce sont les quatre dont le schéma a été vérifié champ par
+champ ; les autres (`lvm`, `zfspool`, `ceph`…) sont refusés avec un message qui
+renvoie à l'interface web. Accepter un type dont on n'a pas vérifié les champs
+reviendrait à écrire un payload de mémoire — ce que le PRD §6.3 interdit.
+
+**Non vérifié en live** — aucune écriture n'a été émise contre le nœud : il
+héberge une production. Les verbes mutants sont couverts en unitaire et en
+`--dry-run` uniquement, avec des assertions sur le **corps réellement émis**
+(`storeWriteServer`, `r.PostForm`) et non sur la sortie d'un `--dry-run`.
+
+**Ce que ça doit t'apprendre** — Qu'un nom de commande peut être un dispositif
+de sécurité. `storage rm <storage>` et `storage rm <storage> <volid>` sont
+distinguables par arity pour un parseur, jamais pour un opérateur fatigué : la
+seule façon de rendre l'erreur impossible est de ne pas offrir la forme
+ambiguë.
 
 ---
 
@@ -235,30 +371,108 @@ supprime *jamais* rien). Un bon défaut dépend de ce qu'on protège.
 
 ---
 
-### PVX-077 — `access role create` : accorder un privilège sans tout donner
+### PVX-077 — rôles sur mesure : accorder un privilège sans tout donner
 
-**Taille** S · **Type** ⚙ · **Statut** 🔎 identifié — 2026-08-02
+**Taille** S · **Type** ⚙ · **Statut** ✅ livré — 2026-08-02
 
 Découvert en documentant PVX-076. Les écritures sur `/cluster/backup` exigent
-**`Sys.Modify` sur `/`**. Or une ACL accorde un **rôle**, pas un privilège — et
-dans les rôles intégrés du nœud (`testdata/roles.json`, capture réelle), **le
+**`Sys.Modify`**. Or une ACL accorde un **rôle**, pas un privilège — et dans les
+rôles intégrés du nœud (`testdata/roles-with-custom.json`, capture réelle), **le
 seul qui porte `Sys.Modify` est `Administrator`**. Le donner sur `/`, c'est
 `root@pam` sous un autre nom, ce que `access acl set` refuse à juste titre sans
-`--i-know-what-im-doing`.
+`--i-know-what-im-doing`. La sortie propre est un **rôle sur mesure**, et elle
+passait par des endpoints que pvecli n'exposait pas : `access role` était en
+lecture seule (`ls|show`).
 
-La sortie propre est un **rôle sur mesure** ne portant que ce qu'il faut. Elle
-passe par `POST /access/roles`, que pvecli n'expose pas : `access role` est en
-lecture seule (`ls|show`). Conséquence pratique : accorder proprement le droit
-de gérer les jobs de sauvegarde à un token de moindre privilège **oblige
-aujourd'hui à sortir de pvecli** (`pveum role add … -privs "Sys.Audit,Sys.Modify"`
-sur le nœud), ce qui contredit l'ADN de l'outil.
+**Livré** : écritures dans `internal/pve/access.go` + `cmd/access.go`.
+- `pvecli access role add|set|rm` (`create`, `update`, `delete` en alias).
+- 3 endpoints ajoutés à `endpoints.go` et à `docs/API-MAP.md`.
 
-**Critères d'acceptation** *(à figer)*
-- `pvecli access role create <roleid> --privs Sys.Audit,Sys.Modify`, et le `rm`
-  correspondant.
-- L'aide dit lesquels des privilèges demandés l'appelant ne détient pas — PVE
-  refuse de créer un rôle plus puissant que soi (même règle qu'`ACL.pm`).
-- `docs/API-MAP.md` : `POST` et `DELETE /access/roles/{roleid}`.
+**Nommage** — `add` plutôt que `create` comme nom principal, parce que PVE dit
+lui-même `pveum role add` ; `create` reste accepté en alias pour rester
+cohérent avec `access user create`, `access token create` et `backup job
+create`. `set` (alias `update`) comme `vm set`, `access acl set` et `backup job
+set` — c'est la même opération, écrire des champs sur un objet existant. `rm`
+(alias `delete`) comme partout ailleurs. `--i-know-what-im-doing` réutilise le
+mot de `access acl set` plutôt que d'inventer un troisième vocabulaire de
+forçage.
+
+**Le piège central : `append`.** Le `PUT /access/roles/{roleid}` **REMPLACE**
+toute la liste de privilèges. Le schéma expose bien un `append` booléen qui
+ferait l'union — **pvecli ne l'envoie jamais**, et c'est une décision
+d'architecture, pas un oubli : avec lui, l'union se ferait *côté nœud*, donc la
+liste résultante ne serait connue qu'**après** l'écriture et un `--dry-run` ne
+pourrait pas la montrer. Un plan qui n'affiche pas ce qu'il produit est une
+fiction polie. pvecli relit donc les privilèges actuels, calcule ici, et envoie
+la liste finale complète — c'est aussi la **seule** façon de retirer un
+privilège, l'API n'ayant aucune primitive de retrait. Même classe d'erreur que
+`prune-backups` en PVX-076 : l'unité de mise à jour côté API est plus grosse que
+l'unité de drapeau côté CLI.
+
+**Cinq garde-fous, chacun couvert par un test :**
+1. **`--privs` est obligatoire sur `add`**, alors que l'API le donne pour
+   optionnel. Un rôle sans privilège est `NoAccess` sous un autre nom : il
+   s'attribue, et il n'accorde rien. Même logique que la rétention exigée par
+   `backup job create`.
+2. **Toute PERTE de privilège est `Destructive`** — donc la confirmation exige
+   de retaper le nom du rôle, et le pre-read nomme les privilèges perdus un par
+   un. Ce n'est pas une destruction, ça en a la conséquence : les identités qui
+   portent le rôle la subissent sans qu'aucune ACL soit relue. Précédent du
+   dépôt : `access user create`, `Destructive` sans rien détruire.
+3. **Les privilèges sont validés contre le NŒUD, jamais contre une liste codée
+   en dur** : l'univers vient de `GET /access/roles/Administrator`, qui les
+   porte tous. Une casse fautive (`Sys.modify`) est corrigée dans le refus. Si
+   cette lecture échoue, la commande ne tombe pas : la validation est un
+   confort, pas une précondition.
+4. **Les rôles intégrés sont refusés.** La vérité est `special == 1` dans
+   `GET /access/roles` (la capture prouve qu'un rôle non intégré, `URLFetch`,
+   coexiste avec eux) ; le motif de nom sert de second filet quand la liste
+   n'est pas lisible. `--i-know-what-im-doing` lève le refus sur `rm`.
+5. **`rm` liste les ACL qui référencent le rôle** avant de supprimer — en
+   disant que `GET /access/acl` est **filtré** par les droits de l'appelant :
+   une liste vide veut dire « aucune ACL VISIBLE », pas « aucune ACL ». Un 403
+   sur cette lecture n'échoue pas la commande, il annonce que la vérification
+   n'a pas pu être faite.
+
+**Non vérifié en live** — aucune écriture n'a été émise contre le nœud : il
+héberge une production, et le token courant n'a de toute façon pas `Sys.Modify`
+(c'est le problème que la story résout). Validé par build, `go vet`,
+`golangci-lint`, `go test ./...`, le seuil de couverture, et des tests qui
+assertent sur le **corps réellement émis** — pas sur la sortie d'un `--dry-run`.
+
+**Le critère d'acceptation initial était FAUX, et le source le prouve.** Il
+disait « PVE refuse de créer un rôle plus puissant que soi (même règle
+qu'`ACL.pm`) ». Lecture de `pve-access-control/src/PVE/API2/Role.pm` : `create_role`
+ne fait que trois choses — le contrôle de l'espace de noms, un refus si le rôle
+existe déjà, puis `add_role_privs`. **Aucune comparaison avec les privilèges de
+l'appelant.** Un compte portant `Sys.Modify` sur `/access` peut donc fabriquer un
+rôle qui porte `Permissions.Modify`, qu'il ne détient pas lui-même. La barrière
+n'est pas à la création du rôle, elle est à son ATTRIBUTION (`ACL.pm:190`, déjà
+documenté). Rien de tel n'est donc affirmé dans l'aide, et la story ne le
+réclame plus.
+
+**Deux règles du nœud, découvertes en relecture et transcrites depuis le source
+plutôt que devinées :**
+- `create_role` fait `raise_param_exc` sur `$role =~ /^PVE/i`. Le préfixe `PVE`
+  est un **espace de noms réservé**, comparé **sans tenir compte de la casse** :
+  `pveBackup` est refusé comme `PVEBackup`. Conséquence pratique et
+  contre-intuitive : **un rôle sur mesure ne peut PAS s'appeler
+  `PVEBackupJobAdmin`**. La première version de `IsBuiltinRoleName` comparait
+  avec la casse — elle laissait donc passer `pveBackup` jusqu'à l'écriture, pour
+  le faire échouer côté nœud *après* la confirmation. Corrigé, et figé par un
+  test qui nomme explicitement `PVEBackupJobAdmin`.
+- `update_role` et `delete_role` meurent sur `role_is_special()`, dont la table
+  contient `NoAccess`, `Administrator` et tous les `PVE…` générés. Le refus
+  local n'invente donc rien : il dit la même chose, plus tôt.
+- `add_role_privs` meurt sur `invalid privilege '<p>'` — le nœud valide les noms
+  de privilèges en correspondance **exacte**. La validation locale contre les
+  privilèges d'`Administrator` ne fait que rendre ce refus lisible et le déplacer
+  avant la confirmation.
+
+**Ce que ça doit t'apprendre** — Qu'un modèle d'autorisation peut n'avoir aucune
+granularité intermédiaire. Entre « ce privilège » et « tout », PVE n'offre rien
+tant qu'on n'a pas fabriqué l'objet qui manque. La CLI qui ne sait que lire les
+rôles condamne son utilisateur à `Administrator`.
 
 ---
 

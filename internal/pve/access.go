@@ -181,6 +181,126 @@ func (c *Client) RolePrivileges(ctx context.Context, roleID string) ([]string, e
 	return privs, nil
 }
 
+// NormalizePrivileges met une liste de privilèges dans sa forme canonique :
+// trimmée, dédoublonnée, triée, sans vides.
+//
+// Le tri n'est pas cosmétique. Le payload d'un rôle est UNE chaîne à virgules,
+// et c'est elle que le plan d'un --dry-run affiche : sans ordre fixe, deux
+// exécutions du même geste rendraient deux plans différents, et comparer un
+// plan à l'autre — la seule relecture possible avant d'écrire — ne voudrait
+// plus rien dire. Même raison que BackupRetention.String().
+func NormalizePrivileges(privs []string) []string {
+	seen := make(map[string]bool, len(privs))
+	out := make([]string, 0, len(privs))
+	for _, raw := range privs {
+		// Les drapeaux de la CLI sont répétables ET acceptent le CSV : la même
+		// liste peut donc arriver en un élément ou en dix.
+		for _, part := range strings.Split(raw, ",") {
+			p := strings.TrimSpace(part)
+			if p == "" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// builtinRoleNames nomme les rôles intégrés qui ne portent pas le préfixe PVE.
+//
+// La comparaison est SENSIBLE à la casse, comme celle du nœud :
+// PVE::AccessControl::role_is_special est un simple « exists » sur une table
+// dont les clés sont « NoAccess » et « Administrator ».
+var builtinRoleNames = map[string]bool{"Administrator": true, "NoAccess": true}
+
+// IsBuiltinRoleName dit si un identifiant tombe dans l'espace de noms réservé
+// par PVE.
+//
+// Ce n'est PAS une heuristique, c'est la règle du nœud, transcrite :
+// PVE::API2::Role::create_role refuse tout identifiant correspondant à
+// « /^PVE/i » — préfixe INSENSIBLE À LA CASSE, d'où le ToUpper. « pveBackup »
+// est donc refusé par le nœud exactement comme « PVEBackup », et une
+// vérification locale sensible à la casse laisserait passer la moitié des cas
+// pour les faire échouer après la confirmation.
+//
+// Pour « set » et « rm », la règle du nœud est différente — role_is_special,
+// une correspondance exacte sur les noms générés — mais elle est INCLUSE dans
+// celle-ci : un rôle sur mesure ne peut pas porter ce préfixe, puisque sa
+// création est refusée. Le même prédicat couvre donc les trois verbes.
+func IsBuiltinRoleName(roleID string) bool {
+	return strings.HasPrefix(strings.ToUpper(roleID), "PVE") || builtinRoleNames[roleID]
+}
+
+// RoleOptions est le payload d'une écriture de rôle.
+//
+// Il existe pour que le plan affiché et la requête émise ne puissent pas
+// diverger : les deux passent par Values()/UpdateValues(), jamais par deux
+// constructions parallèles.
+type RoleOptions struct {
+	RoleID string
+	// Privs est la liste COMPLÈTE et FINALE des privilèges. L'API n'a pas de
+	// primitive d'ajout ni de retrait : voir UpdateRole.
+	Privs []string
+}
+
+// Values rend le payload d'une création (POST /access/roles).
+func (o RoleOptions) Values() url.Values {
+	v := url.Values{}
+	v.Set("roleid", o.RoleID)
+	v.Set("privs", strings.Join(NormalizePrivileges(o.Privs), ","))
+	return v
+}
+
+// UpdateValues rend le payload d'une modification (PUT /access/roles/{roleid}).
+//
+// « roleid » n'y figure pas : il voyage dans le chemin, et le nœud le remplit
+// lui-même à partir de l'URI. « append » non plus, et c'est une décision — voir
+// UpdateRole.
+func (o RoleOptions) UpdateValues() url.Values {
+	v := url.Values{}
+	v.Set("privs", strings.Join(NormalizePrivileges(o.Privs), ","))
+	return v
+}
+
+// CreateRole crée un rôle sur mesure.
+//
+// POST /access/roles — exige « Sys.Modify » sur « /access ». C'est la seule
+// façon d'accorder un privilège isolé : une ACL n'accorde qu'un RÔLE, et parmi
+// les rôles intégrés du nœud, seul Administrator porte Sys.Modify.
+func (c *Client) CreateRole(ctx context.Context, roleID string, privs []string) error {
+	return c.post(ctx, epRoleCreate, nil, RoleOptions{RoleID: roleID, Privs: privs}.Values(), nil)
+}
+
+// UpdateRole écrit la liste COMPLÈTE des privilèges d'un rôle.
+//
+// Le PUT REMPLACE la liste. Le schéma expose bien un « append » booléen qui
+// ferait l'union côté nœud — pvecli ne l'envoie JAMAIS, et c'est délibéré :
+// avec lui, la liste résultante ne serait connue qu'après l'écriture, donc un
+// --dry-run ne pourrait pas la montrer. Un plan qui n'affiche pas ce qu'il
+// produit est une fiction polie. pvecli fait donc l'union (ou la soustraction,
+// que l'API n'expose pas du tout) AVANT, et envoie le résultat.
+//
+// PUT /access/roles/{roleid} — exige « Sys.Modify » sur « /access ».
+func (c *Client) UpdateRole(ctx context.Context, roleID string, privs []string) error {
+	return c.post(ctx, epRoleUpdate, []string{roleID}, RoleOptions{RoleID: roleID, Privs: privs}.UpdateValues(), nil)
+}
+
+// DeleteRole supprime un rôle sur mesure.
+//
+// Les ACL qui le référencent perdent leur effet : une ACL n'accorde qu'un rôle,
+// et un rôle qui n'existe plus n'accorde rien.
+//
+// DELETE /access/roles/{roleid} — exige « Sys.Modify » sur « /access ».
+func (c *Client) DeleteRole(ctx context.Context, roleID string) error {
+	return c.del(ctx, epRoleDelete, []string{roleID}, nil, nil)
+}
+
+// RolesPath et RolePath rendent les chemins pour --dry-run.
+func RolesPath() string             { return epRoleCreate.Pattern }
+func RolePath(roleID string) string { return epRoleUpdate.Path(roleID) }
+
 // ACLEntry is one line of GET /access/acl: the (path, identity, role) triplet.
 type ACLEntry struct {
 	Path   string `json:"path"`
