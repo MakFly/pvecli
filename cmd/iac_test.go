@@ -6,13 +6,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/MakFly/pvecli/internal/testutil"
 )
 
 // inventoryRoutes describes a lab with one of every case the generator has to
 // deal with, taken from the real /cluster/resources?type=vm of the lab node:
 //
-//	lxc/120    a container       — no QEMU agent
+//	lxc/120    a stopped container — nothing to connect to
 //	qemu/211   running, answers  — the only host that makes it in
 //	qemu/212   running, silent   — its agent route is deliberately absent
 //	qemu/213   stopped           — nothing to interrogate
@@ -63,7 +64,9 @@ func TestExcludedGuestsAreNamedOnStderr(t *testing.T) {
 	}
 
 	cases := map[string]string{
-		"120":  "conteneur LXC",
+		// 120 is a container, and containers are no longer excluded for being
+		// containers: this one is out because it is stopped.
+		"120":  "conteneur arrêté",
 		"212":  "agent QEMU muet",
 		"213":  "arrêtée",
 		"9000": "template",
@@ -124,7 +127,7 @@ func TestInventoryTagFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Only the container carries « pvecli »; it is filtered in, then excluded
-	// for having no agent — so the document is empty and says so.
+	// for being stopped — so the document is empty and says so.
 	if strings.Contains(stdout, "lab-app-01") {
 		t.Errorf("--tag pvecli ne doit pas retenir lab-app-01 :\n%s", stdout)
 	}
@@ -272,5 +275,219 @@ func TestApplyDryRunRunsPlan(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "argv: plan") {
 		t.Errorf("--dry-run doit lancer « plan » :\n%s", body)
+	}
+}
+
+// A container has no agent, so its address can only come from what it declares.
+// This table pins the decision for each shape the configuration can take —
+// including the two that are deliberately refused rather than guessed.
+func TestLXCStaticIPv4ReadsTheConfigurationAndRefusesToGuess(t *testing.T) {
+	cases := []struct {
+		name       string
+		cfg        pve.GuestConfig
+		wantIP     string
+		wantReason []string // substrings the exclusion must contain
+	}{
+		{
+			name:   "une IPv4 statique : le masque ne va pas dans ansible_host",
+			cfg:    pve.GuestConfig{"net0": "name=eth0,bridge=vmbr0,hwaddr=BC:24:11:45:5C:E7,ip=192.168.1.222/24,gw=192.168.1.1"},
+			wantIP: "192.168.1.222",
+		},
+		{
+			name:   "une IPv4 sans masque reste lisible",
+			cfg:    pve.GuestConfig{"net0": "name=eth0,bridge=vmbr0,ip=10.0.0.5"},
+			wantIP: "10.0.0.5",
+		},
+		{
+			name:       "un bail DHCP n'est pas une adresse",
+			cfg:        pve.GuestConfig{"net0": "name=eth0,bridge=vmbr0,ip=dhcp"},
+			wantReason: []string{"dhcp", "net0"},
+		},
+		{
+			name:       "« manual » non plus",
+			cfg:        pve.GuestConfig{"net0": "name=eth0,bridge=vmbr0,ip=manual"},
+			wantReason: []string{"manual"},
+		},
+		{
+			name: "deux IPv4 statiques : la configuration ne tranche pas",
+			cfg: pve.GuestConfig{
+				"net0": "name=eth0,bridge=vmbr0,ip=10.0.0.5/24",
+				"net1": "name=eth1,bridge=vmbr1,ip=192.168.1.30/24",
+			},
+			wantReason: []string{"plusieurs", "net0=10.0.0.5", "net1=192.168.1.30"},
+		},
+		{
+			name:       "aucune interface déclarée",
+			cfg:        pve.GuestConfig{"hostname": "edge-01"},
+			wantReason: []string{"aucune interface réseau"},
+		},
+		{
+			name:       "une interface sans adresse du tout",
+			cfg:        pve.GuestConfig{"net0": "name=eth0,bridge=vmbr0"},
+			wantReason: []string{"aucune adresse déclarée", "net0"},
+		},
+		{
+			name:       "seulement de l'IPv6 : l'inventaire ne pose que de l'IPv4",
+			cfg:        pve.GuestConfig{"net0": "name=eth0,bridge=vmbr0,ip6=2001:db8::1/64,ip=2001:db8::1/64"},
+			wantReason: []string{"IPv6"},
+		},
+		{
+			name:       "une valeur qui ne parse pas n'est pas propagée",
+			cfg:        pve.GuestConfig{"net0": "name=eth0,bridge=vmbr0,ip=pas-une-adresse"},
+			wantReason: []string{"net0"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ip, reason := lxcStaticIPv4(tc.cfg)
+			if tc.wantIP != "" {
+				if ip != tc.wantIP {
+					t.Fatalf("ip = %q (motif %q), attendu %q", ip, reason, tc.wantIP)
+				}
+				if reason != "" {
+					t.Errorf("une adresse trouvée ne doit pas porter de motif d'exclusion : %q", reason)
+				}
+				return
+			}
+			if ip != "" {
+				t.Fatalf("aucune adresse n'était décidable, %q rendue", ip)
+			}
+			if reason == "" {
+				t.Fatal("une exclusion sans motif est exactement ce que ce dépôt refuse")
+			}
+			for _, want := range tc.wantReason {
+				if !strings.Contains(reason, want) {
+					t.Errorf("le motif doit dire ce qui a été lu (%q absent) : %s", want, reason)
+				}
+			}
+		})
+	}
+}
+
+// lxcFixtures writes a cluster shaped like the real one — CT 222 « edge-01 »
+// carrying svc_caddy, plus one container per refusal — and returns the fixture
+// directory and its routes.
+//
+// Written here rather than captured under testdata/ because the point is the
+// variation: five containers that differ only by one field of one config.
+func lxcFixtures(t *testing.T) (dir string, routes map[string]string) {
+	t.Helper()
+
+	dir = t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("resources.json", `{"data":[
+	  {"id":"lxc/222","vmid":222,"name":"edge-01","node":"pve","type":"lxc","status":"running","template":0,"tags":"edge;pvecli;svc_caddy"},
+	  {"id":"lxc/230","vmid":230,"name":"ct-dhcp","node":"pve","type":"lxc","status":"running","template":0,"tags":"lab"},
+	  {"id":"lxc/231","vmid":231,"name":"ct-double","node":"pve","type":"lxc","status":"running","template":0,"tags":"lab"},
+	  {"id":"lxc/232","vmid":232,"name":"ct-modele","node":"pve","type":"lxc","status":"stopped","template":1,"tags":"template"},
+	  {"id":"lxc/233","vmid":233,"name":"ct-arrete","node":"pve","type":"lxc","status":"stopped","template":0,"tags":"lab"}
+	]}`)
+	write("ct-222.json", `{"data":{"hostname":"edge-01","ostype":"debian",
+	  "net0":"name=eth0,bridge=vmbr0,hwaddr=BC:24:11:45:5C:E7,ip=192.168.1.222/24,gw=192.168.1.1,type=veth"}}`)
+	write("ct-230.json", `{"data":{"hostname":"ct-dhcp","net0":"name=eth0,bridge=vmbr0,hwaddr=BC:24:11:00:00:01,ip=dhcp,type=veth"}}`)
+	write("ct-231.json", `{"data":{"hostname":"ct-double",
+	  "net0":"name=eth0,bridge=vmbr0,hwaddr=BC:24:11:00:00:02,ip=10.0.0.5/24,type=veth",
+	  "net1":"name=eth1,bridge=vmbr1,hwaddr=BC:24:11:00:00:03,ip=192.168.1.30/24,type=veth"}}`)
+
+	return dir, map[string]string{
+		"GET /api2/json/cluster/resources":        "resources.json",
+		"GET /api2/json/nodes/pve/lxc/222/config": "ct-222.json",
+		"GET /api2/json/nodes/pve/lxc/230/config": "ct-230.json",
+		"GET /api2/json/nodes/pve/lxc/231/config": "ct-231.json",
+	}
+}
+
+// The defect this fixes: CT 222 carries svc_caddy, the catalogue has a
+// « hosts: svc_caddy » play, and the container was excluded — so the play ran on
+// zero hosts and reported green.
+func TestInventoryTakesAContainerAddressFromItsConfiguration(t *testing.T) {
+	dir, routes := lxcFixtures(t)
+	srv := testutil.New(t, dir, routes)
+	point(t, srv.URL)
+
+	stdout, _, err := run(t, "iac", "inventory", "--node", "pve")
+	if err != nil {
+		t.Fatalf("iac inventory a échoué : %v", err)
+	}
+
+	for _, want := range []string{
+		"svc_caddy:",                  // the group the play targets
+		"edge-01:",                    // the container is a host
+		"ansible_host: 192.168.1.222", // read in net0, without its mask
+		"ansible_user: root",          // the only account PVE guarantees
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("l'inventaire ne contient pas %q :\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "192.168.1.222/24") {
+		t.Errorf("le masque n'a rien à faire dans ansible_host :\n%s", stdout)
+	}
+}
+
+func TestInventoryUserFlagOverridesTheContainerDefault(t *testing.T) {
+	dir, routes := lxcFixtures(t)
+	srv := testutil.New(t, dir, routes)
+	point(t, srv.URL)
+
+	stdout, _, err := run(t, "iac", "inventory", "--node", "pve", "--user", "ops")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "ansible_user: ops") {
+		t.Errorf("--user doit l'emporter sur le « root » par défaut :\n%s", stdout)
+	}
+	if strings.Contains(stdout, "ansible_user: root") {
+		t.Errorf("« root » ne doit plus apparaître quand --user est donné :\n%s", stdout)
+	}
+}
+
+// Each container left out is left out for its own reason, and the reason says
+// what was read. None of them mentions a QEMU agent: a container has none, and
+// that was never why it could not be reached.
+func TestExcludedContainersSayWhatWasReadInTheirConfiguration(t *testing.T) {
+	dir, routes := lxcFixtures(t)
+	srv := testutil.New(t, dir, routes)
+	point(t, srv.URL)
+
+	stdout, stderr, err := run(t, "iac", "inventory", "--node", "pve")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := map[string][]string{
+		"230": {"dhcp"},                                            // a lease is not an address
+		"231": {"plusieurs", "net0=10.0.0.5", "net1=192.168.1.30"}, // undecidable
+		"232": {"template"},                                        // excluded as a template, not as a container
+		"233": {"conteneur arrêté"},                                // stopped, and not "the agent cannot answer"
+	}
+	for vmid, wants := range cases {
+		line := ""
+		for _, l := range strings.Split(stderr, "\n") {
+			if strings.HasPrefix(l, "exclu "+vmid+" ") {
+				line = l
+			}
+		}
+		if line == "" {
+			t.Errorf("le conteneur %s doit être exclu ET expliqué :\n%s", vmid, stderr)
+			continue
+		}
+		for _, want := range wants {
+			if !strings.Contains(line, want) {
+				t.Errorf("le motif de %s doit contenir %q : %s", vmid, want, line)
+			}
+		}
+		if strings.Contains(line, "agent") {
+			t.Errorf("le motif de %s parle d'agent QEMU, qu'un conteneur n'a pas : %s", vmid, line)
+		}
+		if strings.Contains(stdout, "vmid: "+vmid) {
+			t.Errorf("le conteneur %s exclu ne doit pas figurer dans le document", vmid)
+		}
 	}
 }

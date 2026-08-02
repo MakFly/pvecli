@@ -3,7 +3,7 @@ package catalog
 import (
 	"errors"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 
@@ -219,10 +219,58 @@ func TestEveryReferencedTemplateIsShipped(t *testing.T) {
 	}
 }
 
+// ansibleTask is the shape of one task of a role's tasks/main.yml, just enough
+// to find the `include_role: pvecli_publish` and read the keys it publishes.
+// The include may be written short or FQCN, hence the two fields.
+type ansibleTask struct {
+	Name        string       `yaml:"name"`
+	IncludeRole *includeRole `yaml:"include_role"`
+	FQCNInclude *includeRole `yaml:"ansible.builtin.include_role"`
+	Vars        struct {
+		PublishValues map[string]yaml.Node `yaml:"pvecli_publish_values"`
+	} `yaml:"vars"`
+}
+
+type includeRole struct {
+	Name string `yaml:"name"`
+}
+
+// publishedKeys returns the keys a role actually hands to pvecli_publish.
+// Reading the parsed YAML instead of the raw text matters: a substring search
+// for `<key>:` is satisfied by a comment, a task name, or any unrelated
+// mapping — including one in a role that never calls pvecli_publish at all.
+func publishedKeys(t *testing.T, tasksPath string) []string {
+	t.Helper()
+	raw, err := Assets.ReadFile(tasksPath)
+	if err != nil {
+		t.Fatalf("lecture de %s: %v", tasksPath, err)
+	}
+	var tasks []ansibleTask
+	if err := yaml.Unmarshal(raw, &tasks); err != nil {
+		t.Fatalf("%s illisible: %v", tasksPath, err)
+	}
+	var keys []string
+	for _, task := range tasks {
+		inc := task.IncludeRole
+		if inc == nil {
+			inc = task.FQCNInclude
+		}
+		if inc == nil || inc.Name != "pvecli_publish" {
+			continue
+		}
+		for k := range task.Vars.PublishValues {
+			keys = append(keys, k)
+		}
+	}
+	return keys
+}
+
 // Le manifeste dit ce qu'un service rend joignable ; le rôle doit réellement
-// l'écrire. On ne compare que les clés : les valeurs diffèrent légitimement
-// (ex. postgresql publie {{ ansible_host }} là où le manifeste affiche
-// {{ pvecli_host_ip }}), seule la présence de la clé est un contrat vérifiable.
+// le passer à pvecli_publish. On ne compare que les clés : les valeurs
+// diffèrent légitimement (ex. postgresql publie {{ ansible_host }} là où le
+// manifeste affiche {{ pvecli_host_ip }}), seule la présence de la clé est un
+// contrat vérifiable. Un rôle qui déclare des sorties sans inclure
+// pvecli_publish ne publie rien : il échoue ici, sur chacune de ses clés.
 func TestEveryDeclaredOutputIsPublishedByItsRole(t *testing.T) {
 	c, err := Load()
 	if err != nil {
@@ -230,30 +278,34 @@ func TestEveryDeclaredOutputIsPublishedByItsRole(t *testing.T) {
 	}
 	for _, s := range c.Services {
 		tasksPath := "assets/ansible/roles/" + s.Role + "/tasks/main.yml"
-		raw, err := Assets.ReadFile(tasksPath)
-		if err != nil {
-			t.Fatalf("lecture de %s: %v", tasksPath, err)
-		}
-		body := string(raw)
+		published := publishedKeys(t, tasksPath)
 		for _, o := range s.Outputs {
-			if !strings.Contains(body, o.Key+":") {
-				t.Errorf("service « %s » déclare la sortie « %s », absente de %s", s.ID, o.Key, tasksPath)
+			if !slices.Contains(published, o.Key) {
+				t.Errorf("service « %s » déclare la sortie « %s », absente des pvecli_publish_values de %s (publiées: %v)",
+					s.ID, o.Key, tasksPath, published)
 			}
 		}
 	}
 }
 
-// Contrairement à TestTagsAreSorted (qui appelle Tags sur un tableau littéral
-// et ne peut donc jamais casser), celui-ci porte sur le catalogue embarqué :
-// il garde un sens quand un service est ajouté.
-func TestEmbeddedTagsAreSorted(t *testing.T) {
+// Ce test ne vérifie PAS que Tags trie — Tags appelle sort.Strings juste
+// avant de retourner, une assertion « est trié » ne pourrait jamais échouer.
+// Il fixe la liste exacte des tags du catalogue embarqué : c'est le contrat
+// que Terraform pose sur la VM et que `iac inventory` transforme en groupes
+// Ansible. Ajouter un service le fait échouer, ce qui est le but : la liste
+// ci-dessous est le seul endroit où l'on relit ce contrat en entier.
+func TestEmbeddedTagsAreExactly(t *testing.T) {
 	c, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
+	want := []string{"svc_caddy", "svc_cloudflared", "svc_docker", "svc_postgresql"}
 	got := Tags(c.Services)
-	if !sort.StringsAreSorted(got) {
-		t.Errorf("Tags(catalogue embarqué) = %v, non trié", got)
+	if !slices.Equal(got, want) {
+		t.Errorf("Tags(catalogue embarqué) = %v, attendu %v\n"+
+			"si tu viens d'ajouter un service au catalogue : ajoute son tag « svc_<id> » "+
+			"à la liste attendue de ce test, en gardant l'ordre alphabétique, "+
+			"et vérifie qu'il a bien un play dans pvecli.yml", got, want)
 	}
 }
 

@@ -6,6 +6,13 @@
 # à partir de « caddy.routes » de son shuttle.yml. Ne JAMAIS éditer un
 # fragment à la main : il est écrasé au déploiement suivant, et plus personne
 # ne peut dire quel projet le possède.
+#
+# Piège à connaître avant d'écrire un fragment : avec `auto_https off`
+# ci-dessous, un bloc dont l'adresse est un nom nu (« exemple.tld { … } »)
+# bindera quand même 443 — mais sans certificat, puisque plus rien ne va le
+# chercher. `caddy validate` accepte, et ça casse à l'exécution. Un fragment
+# doit donc préfixer ses adresses par `http://` (« http://exemple.tld »), ou
+# n'écouter que sur un port (« :8080 »).
 {
 	# L'API d'admin, c'est justement ce par quoi passe « systemctl reload
 	# caddy » : Caddy v2 n'a pas de rechargement par signal, ExecReload

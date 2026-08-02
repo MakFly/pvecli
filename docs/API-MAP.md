@@ -66,7 +66,7 @@ de PVE **9.x** (le lab tourne en 9.2.2, pas en 8.x) ou via
 | `/cluster/firewall/ipset` | GET · POST | `pvecli fw ipset ls\|create` | PVX-075 | 2026-08-01 | set d'IP réutilisable au niveau datacenter |
 | `/cluster/firewall/ipset/{name}` | GET · POST | `pvecli fw ipset show\|add` | PVX-075 | 2026-08-01 | liste / ajoute une entrée `cidr` au set |
 | `/cluster/firewall/ipset/{name}/{cidr}` | DELETE | `pvecli fw ipset del` | PVX-075 | 2026-08-01 | retire une entrée du set |
-| `/nodes/{node}/lxc/{vmid}/config` | GET | `pvecli lxc show`, `iac drift\|adopt` | PVX-013 · 044 · 045 | 2026-07-31 | `pvesh usage` sur le nœud |
+| `/nodes/{node}/lxc/{vmid}/config` | GET | `pvecli lxc show`, `iac drift\|adopt`, `iac inventory` | PVX-013 · 044 · 045 | 2026-07-31 | `pvesh usage` sur le nœud |
 | `/nodes/{node}/lxc/{vmid}/status/current` | GET | `pvecli lxc show` | PVX-013 | 2026-07-31 | `pvesh usage` sur le nœud |
 | `/nodes/{node}/storage` | GET | `pvecli storage ls` | PVX-014 | 2026-07-31 | `pvesh get /nodes/pve/storage` |
 | `/nodes/{node}/storage/{storage}/content` | GET | `pvecli storage content` | PVX-014 | 2026-07-31 | `pvesh usage` sur le nœud |

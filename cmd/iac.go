@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -98,7 +99,8 @@ Jouer un playbook sur un hôte injoignable produit un rapport d'échec au milieu
 d'un run à moitié fait, ce qui est le pire moment pour l'apprendre.
 
 Endpoints : GET /api2/json/cluster/resources
-            GET /api2/json/nodes/{node}/qemu/{vmid}/agent/network-get-interfaces`,
+            GET /api2/json/nodes/{node}/qemu/{vmid}/agent/network-get-interfaces
+            GET /api2/json/nodes/{node}/lxc/{vmid}/config`,
 		Args: usage(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			eff, err := resolveConfig(cmd)
@@ -130,7 +132,8 @@ Endpoints : GET /api2/json/cluster/resources
 			reportInventory(cmd, inv)
 			if len(inv.Hosts) == 0 {
 				return fmt.Errorf("inventaire vide : aucun hôte à configurer.\n" +
-					"Les exclusions ci-dessus disent pourquoi — le plus souvent, un agent QEMU absent")
+					"Les exclusions ci-dessus disent pourquoi — un agent QEMU absent côté VM,\n" +
+					"ou, côté conteneur, une configuration qui ne désigne pas une IPv4 (DHCP, ou plusieurs)")
 			}
 
 			path, cleanup, err := writeTempInventory(inv, eff.Endpoint)
@@ -956,8 +959,15 @@ dans l'inventaire, et la raison part sur stderr :
 
   · une VM arrêtée         : rien à interroger
   · un agent qui ne répond pas : l'adresse serait une supposition
-  · un conteneur LXC       : il n'a pas d'agent QEMU
+  · un conteneur arrêté    : Ansible ne pourrait pas s'y connecter
+  · un conteneur en DHCP, ou qui déclare plusieurs IPv4 statiques :
+                             sa configuration ne désigne pas UNE adresse
   · un template            : ce n'est pas un hôte
+
+UN CONTENEUR N'EST PAS EXCLU PAR NATURE. Il n'a pas d'agent QEMU, mais son
+adresse est écrite dans sa configuration (net0, « ip=192.168.1.222/24 ») : c'est
+là qu'elle est lue, et le masque est retiré. Ce qui manque à un conteneur, ce
+n'est pas l'adresse — c'est le bail DHCP, que rien ne permet de deviner.
 
 Aucune de ces exclusions n'est silencieuse. Un inventaire plus court que la
 flotte donne un « ok=0 changed=0 » qui ressemble à un succès.
@@ -965,7 +975,9 @@ flotte donne un « ok=0 changed=0 » qui ressemble à un succès.
   --group-by tag   une VM taguée « lab_apps » va dans le groupe « lab_apps »
   --group-by none  tous les hôtes dans un seul groupe
   --tag <t>        ne retient que les VM portant ce tag
-  --user <u>       force ansible_user (défaut : « ciuser » de la cloud-init)
+  --user <u>       force ansible_user (défaut : « ciuser » de la cloud-init
+                   pour une VM, « root » pour un conteneur — PVE n'y enregistre
+                   pas de compte, et les plays sont « become: true »)
   --format         yaml (défaut) ou json
   -o <fichier>     écrit le fichier au lieu de stdout
 
@@ -975,7 +987,8 @@ autre outil.
 
 Endpoints : GET /api2/json/cluster/resources
             GET /api2/json/nodes/{node}/qemu/{vmid}/agent/network-get-interfaces
-            GET /api2/json/nodes/{node}/qemu/{vmid}/config`,
+            GET /api2/json/nodes/{node}/qemu/{vmid}/config
+            GET /api2/json/nodes/{node}/lxc/{vmid}/config`,
 		Args: usage(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if groupBy != "tag" && groupBy != "none" {
@@ -1062,40 +1075,73 @@ func buildInventory(ctx context.Context, client *pve.Client, o inventoryOptions)
 		if o.tag != "" && !pve.HasTag(r.Tags, o.tag) {
 			continue
 		}
-		if r.Type != string(pve.TypeQEMU) {
-			inv.Skip(r.VMID, r.Name, "conteneur LXC — pas d'agent QEMU, donc pas d'adresse à découvrir")
-			continue
-		}
+		// A template is not a host whatever its type — an LXC template exists
+		// too, so this cannot live inside the QEMU branch.
 		if r.Template == 1 {
 			inv.Skip(r.VMID, r.Name, "template — ce n'est pas un hôte")
 			continue
 		}
-		if r.Status != "running" {
-			inv.Skip(r.VMID, r.Name, "arrêtée — l'agent ne peut pas répondre")
-			continue
-		}
 
-		ifaces, err := client.AgentInterfaces(ctx, r.Node, r.VMID)
-		if err != nil {
-			// The agent not answering is a fact about this guest, not a
-			// failure of the command: one silent VM must not deprive the
-			// inventory of the twenty that did answer.
-			inv.Skip(r.VMID, r.Name, "agent QEMU muet — « pvecli vm agent ifaces "+fmt.Sprint(r.VMID)+" » dit pourquoi")
-			continue
-		}
-		ip := firstAgentIPv4(ifaces)
-		if ip == "" {
-			inv.Skip(r.VMID, r.Name, "agent joignable mais aucune IPv4 non-loopback")
-			continue
-		}
-
-		user := o.user
-		if user == "" {
-			// cloud-init's ciuser is the account the image was built to be
-			// reached as. Reading it beats defaulting to whoever runs pvecli.
-			if cfg, err := client.GuestConfig(ctx, r.Node, pve.TypeQEMU, r.VMID); err == nil {
-				user = cfg.String("ciuser")
+		var ip, user string
+		switch r.Type {
+		case string(pve.TypeQEMU):
+			if r.Status != "running" {
+				inv.Skip(r.VMID, r.Name, "arrêtée — l'agent ne peut pas répondre")
+				continue
 			}
+			ifaces, err := client.AgentInterfaces(ctx, r.Node, r.VMID)
+			if err != nil {
+				// The agent not answering is a fact about this guest, not a
+				// failure of the command: one silent VM must not deprive the
+				// inventory of the twenty that did answer.
+				inv.Skip(r.VMID, r.Name, "agent QEMU muet — « pvecli vm agent ifaces "+fmt.Sprint(r.VMID)+" » dit pourquoi")
+				continue
+			}
+			if ip = firstAgentIPv4(ifaces); ip == "" {
+				inv.Skip(r.VMID, r.Name, "agent joignable mais aucune IPv4 non-loopback")
+				continue
+			}
+			user = o.user
+			if user == "" {
+				// cloud-init's ciuser is the account the image was built to be
+				// reached as. Reading it beats defaulting to whoever runs pvecli.
+				if cfg, err := client.GuestConfig(ctx, r.Node, pve.TypeQEMU, r.VMID); err == nil {
+					user = cfg.String("ciuser")
+				}
+			}
+
+		case string(pve.TypeLXC):
+			// A container has no QEMU agent, but it does not need one: its
+			// address is declared in its own configuration, in net0.
+			if r.Status != "running" {
+				inv.Skip(r.VMID, r.Name, "conteneur arrêté — Ansible ne pourrait pas s'y connecter")
+				continue
+			}
+			cfg, err := client.GuestConfig(ctx, r.Node, pve.TypeLXC, r.VMID)
+			if err != nil {
+				// Same reading as a mute agent: a fact about this container,
+				// not a failure of the command.
+				inv.Skip(r.VMID, r.Name, "configuration illisible — « pvecli lxc show "+fmt.Sprint(r.VMID)+" » dit pourquoi")
+				continue
+			}
+			var reason string
+			if ip, reason = lxcStaticIPv4(cfg); ip == "" {
+				inv.Skip(r.VMID, r.Name, reason)
+				continue
+			}
+			user = o.user
+			if user == "" {
+				// No ciuser equivalent for a container: PVE does not record a
+				// login account for it. « root » is not a guess — it is the only
+				// account PVE guarantees inside a container, and the catalogue's
+				// plays are « become: true ». Leaving ansible_user empty would
+				// silently mean « whoever runs pvecli », which is worse.
+				user = "root"
+			}
+
+		default:
+			inv.Skip(r.VMID, r.Name, "type d'invité inconnu : "+r.Type)
+			continue
 		}
 
 		inv.Add(iac.Host{
@@ -1132,6 +1178,81 @@ func firstAgentIPv4(ifaces []pve.AgentInterface) string {
 		}
 	}
 	return ""
+}
+
+// lxcStaticIPv4 renvoie l'adresse à laquelle joindre un conteneur, lue dans sa
+// configuration. Le second retour est le motif d'exclusion quand il n'y en a pas.
+//
+// A container has no agent to ask, so what is declared is all there is. Which
+// means the two cases where the configuration does not decide — a DHCP lease,
+// and two static addresses — are excluded rather than guessed: an inventory
+// that points Ansible at an arbitrary interface is worse than a short one,
+// because nothing says it happened.
+func lxcStaticIPv4(cfg pve.GuestConfig) (ip, reason string) {
+	keys := cfg.KeysWithPrefix("net")
+	if len(keys) == 0 {
+		return "", "aucune interface réseau déclarée dans sa configuration"
+	}
+
+	var (
+		candidates []string // "net0=192.168.1.222", for the ambiguous case
+		addrs      []string
+		seen       []string // "net0 ip=dhcp", for the empty case
+		v6only     bool
+	)
+	for _, key := range keys {
+		raw := pve.ParseOptionString(cfg.String(key)).Get("ip")
+		if raw == "" {
+			continue
+		}
+		seen = append(seen, key+" ip="+raw)
+		// « dhcp » and « manual » are not addresses: pvecli does not guess a
+		// lease, and « manual » says the container configures itself.
+		if raw == "dhcp" || raw == "manual" {
+			continue
+		}
+		addr, ok := parseConfiguredAddr(raw)
+		if !ok {
+			continue
+		}
+		if !addr.Is4() {
+			v6only = true
+			continue
+		}
+		candidates = append(candidates, key+"="+addr.String())
+		addrs = append(addrs, addr.String())
+	}
+
+	switch len(addrs) {
+	case 1:
+		return addrs[0], ""
+	case 0:
+		if v6only {
+			return "", "seulement une IPv6 statique dans sa configuration (" + strings.Join(seen, ", ") +
+				") — l'inventaire ne pose que de l'IPv4"
+		}
+		if len(seen) == 0 {
+			return "", "aucune adresse déclarée sur ses interfaces (" + strings.Join(keys, ", ") + ")"
+		}
+		return "", "aucune IPv4 statique dans sa configuration (" + strings.Join(seen, ", ") +
+			") — pvecli ne devine pas une adresse obtenue au bail"
+	default:
+		return "", "plusieurs IPv4 statiques (" + strings.Join(candidates, ", ") +
+			") — laquelle joindre n'est pas décidable depuis la configuration"
+	}
+}
+
+// parseConfiguredAddr reads « 192.168.1.222/24 » or a bare « 192.168.1.222 ».
+// The mask has no business in ansible_host, and a string that does not parse is
+// dropped as a candidate rather than propagated as an address.
+func parseConfiguredAddr(raw string) (netip.Addr, bool) {
+	if p, err := netip.ParsePrefix(raw); err == nil {
+		return p.Addr(), true
+	}
+	if a, err := netip.ParseAddr(raw); err == nil {
+		return a, true
+	}
+	return netip.Addr{}, false
 }
 
 // reportInventory puts everything that is not the document itself on stderr, so
