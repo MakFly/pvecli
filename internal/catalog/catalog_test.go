@@ -234,6 +234,8 @@ type ansibleTask struct {
 	FQCNSystemd *yaml.Node   `yaml:"ansible.builtin.systemd_service"`
 	Service     *yaml.Node   `yaml:"service"`
 	FQCNService *yaml.Node   `yaml:"ansible.builtin.service"`
+	File        *fileModule  `yaml:"file"`
+	FQCNFile    *fileModule  `yaml:"ansible.builtin.file"`
 	Vars        struct {
 		PublishValues map[string]yaml.Node `yaml:"pvecli_publish_values"`
 	} `yaml:"vars"`
@@ -245,6 +247,21 @@ type includeRole struct {
 
 type command struct {
 	Cmd string `yaml:"cmd"`
+}
+
+type fileModule struct {
+	Path    string `yaml:"path"`
+	Owner   string `yaml:"owner"`
+	Recurse bool   `yaml:"recurse"`
+}
+
+// fileSpec returns the `file` module a task drives, whichever spelling it
+// uses, or nil.
+func (t ansibleTask) fileSpec() *fileModule {
+	if t.File != nil {
+		return t.File
+	}
+	return t.FQCNFile
 }
 
 // cmdLine returns the command a task runs, whichever spelling it uses, or "".
@@ -316,6 +333,94 @@ func TestCaddyValidatesTheWholeConfigBeforeAnyTaskCanStartTheService(t *testing.
 			t.Errorf("la tâche « %s » (index %d) peut démarrer ou redémarrer Caddy avant "+
 				"« %s » (index %d) : un fragment conf.d/ cassé ferait tomber le proxy partagé de tout le labo",
 				tasks[i].Name, i, tasks[validate].Name, validate)
+		}
+	}
+}
+
+// `caddy validate` provisionne les modules : un fragment qui déclare une
+// sortie de journal fait CRÉER ce fichier par la validation, sous l'identité
+// qui valide. Le rôle tournant en `become: true`, il naît root:root 0600 et le
+// service — qui tourne en `caddy` — ne peut plus l'ouvrir : le prochain
+// démarrage échoue. La reprise de propriété est donc POSITIONNELLE, comme la
+// revalidation elle-même : après elle, et avant toute tâche capable de
+// démarrer le service. Ailleurs, elle ne protège rien.
+func TestCaddyReownsLogsBetweenValidationAndAnyServiceTask(t *testing.T) {
+	const tasksPath = "assets/ansible/roles/caddy/tasks/main.yml"
+	tasks := parseTasks(t, tasksPath)
+
+	validate, reown := -1, -1
+	for i, task := range tasks {
+		if validate < 0 && strings.Contains(task.cmdLine(), "caddy validate") {
+			validate = i
+		}
+		if f := task.fileSpec(); reown < 0 && f != nil &&
+			f.Path == "/var/log/caddy" && f.Owner == "caddy" && f.Recurse {
+			reown = i
+		}
+	}
+	if validate < 0 {
+		t.Fatalf("%s ne lance plus « caddy validate » : ce test ne vérifie plus rien", tasksPath)
+	}
+	if reown < 0 {
+		t.Fatalf("%s ne rend plus /var/log/caddy à l'utilisateur « caddy » (file, owner=caddy, recurse) : "+
+			"un fragment qui déclare « log { output file … } » fera créer ce fichier en root par "+
+			"« caddy validate », et Caddy ne redémarrera plus", tasksPath)
+	}
+	if reown < validate {
+		t.Errorf("la reprise de propriété (index %d) précède « %s » (index %d) : "+
+			"elle s'exécute donc AVANT que la validation ait créé les fichiers qu'elle doit corriger",
+			reown, tasks[validate].Name, validate)
+	}
+	for i, task := range tasks {
+		if task.touchesService() && i < reown {
+			t.Errorf("la tâche « %s » (index %d) peut démarrer Caddy avant la reprise de propriété "+
+				"des journaux (index %d) : un fichier de log resté à root fait échouer le démarrage",
+				task.Name, i, reown)
+		}
+	}
+}
+
+// Sur un bord, le client direct de Caddy est toujours le cloudflared local :
+// sans `trusted_proxies`, chaque entrée de journal d'accès porte 127.0.0.1
+// comme IP cliente, pour tous les projets. Et la liste doit rester bornée à la
+// loopback : l'élargir revient à croire un X-Forwarded-For émis par n'importe
+// quelle machine du LAN, donc à laisser usurper une IP cliente.
+func TestCaddyfileTrustsOnlyTheLocalConnector(t *testing.T) {
+	raw, err := Assets.ReadFile("assets/ansible/roles/caddy/templates/Caddyfile.j2")
+	if err != nil {
+		t.Fatalf("lecture du template Caddyfile: %v", err)
+	}
+	body := string(raw)
+
+	var directive string
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "trusted_proxies") {
+			directive = trimmed
+			break
+		}
+	}
+	if directive == "" {
+		t.Fatal("le Caddyfile généré ne déclare aucun « trusted_proxies » hors commentaire : " +
+			"les journaux d'accès de tous les projets attribueront chaque requête à 127.0.0.1")
+	}
+
+	for _, want := range []string{"static", "127.0.0.1/32", "::1/128"} {
+		if !strings.Contains(directive, want) {
+			t.Errorf("« %s » attendu dans « %s »", want, directive)
+		}
+	}
+	// Toute source hors loopback rend le X-Forwarded-For usurpable.
+	for _, field := range strings.Fields(directive) {
+		switch field {
+		case "trusted_proxies", "static", "127.0.0.1/32", "::1/128":
+			continue
+		default:
+			t.Errorf("« %s » élargit la confiance hors de la loopback dans « %s » : "+
+				"une machine du LAN pourrait alors falsifier l'IP cliente des journaux", field, directive)
 		}
 	}
 }
