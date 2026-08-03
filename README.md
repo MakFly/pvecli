@@ -186,12 +186,17 @@ pvecli update check           # à jour / vX → vY disponible / dev / vérifica
 pvecli update check --force   # ignore le cache de 24h, refait l'appel réseau
 ```
 
-For a heads-up at every new terminal, add to `~/.zshrc`:
+For a heads-up at every new terminal:
 
 ```sh
-[[ -f /path/to/pvecli/scripts/shell/update-notify.sh ]] && \
-  source /path/to/pvecli/scripts/shell/update-notify.sh
+pvecli update install-hook             # wires it into ~/.zshrc / ~/.bashrc
+pvecli update install-hook --uninstall # removes it again
+pvecli update install-hook --print     # just prints the snippet, writes nothing
 ```
+
+`install.sh` and `make install` already call this after installing the
+binary — a failure there does not fail the install, it only means the
+notification stays unwired. `PVECLI_NO_SHELL_HOOK=1` skips it outright.
 
 The snippet makes two separate calls, on purpose — one command cannot both
 answer the prompt instantly and be allowed to wait on the network:
@@ -205,7 +210,7 @@ answer the prompt instantly and be allowed to wait on the network:
   success or failure — it only updates the cache for the *next* terminal.
 
 The trade-off is deliberate: the notification is always one terminal behind
-the truth. See `scripts/shell/update-notify.sh` for why the backgrounding
+the truth. See `cmd/assets/update-notify.sh` for why the backgrounding
 itself is written the way it is (avoiding zsh's own job-control noise).
 
 Only `linux/amd64` and `darwin/arm64` are published. Anywhere else, build from
