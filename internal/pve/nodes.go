@@ -78,6 +78,24 @@ func (c *Client) NodeStatus(ctx context.Context, node string) (*NodeStatus, erro
 	return &out, nil
 }
 
+// RebootNode asks the node to reboot itself.
+//
+// POST /nodes/{node}/status  command=reboot
+//
+// Privilege is Sys.PowerMgmt on /nodes/{node} — NOT Sys.Modify, which is what
+// most of the node surface takes. A token that can rewrite the APT sources of
+// a node still cannot power-cycle it, and that separation is deliberate.
+//
+// The call is synchronous: it returns no UPID, because the node cannot report
+// on a task whose whole point is that the node stops answering. Its return is
+// therefore an acceptance and nothing more — the proof has to be gathered
+// afterwards, from the outside.
+func (c *Client) RebootNode(ctx context.Context, node string) error {
+	body := url.Values{}
+	body.Set("command", "reboot")
+	return c.post(ctx, epNodePower, []string{node}, body, nil)
+}
+
 // Version is the payload of GET /version.
 //
 // Schema verified on the lab node (PVE 9.2.2) with `pvesh get /version`.
