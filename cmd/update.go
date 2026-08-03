@@ -77,7 +77,7 @@ func newUpdateCmd() *cobra.Command {
 celle du nœud PVE (voir « pvecli version » pour cette dernière).`,
 		Args: usage(cobra.NoArgs),
 	}
-	c.AddCommand(newUpdateCheckCmd())
+	c.AddCommand(newUpdateCheckCmd(), newUpdateInstallHookCmd())
 	return c
 }
 
