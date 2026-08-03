@@ -166,7 +166,7 @@ say "  ✓ $got"
 
 # ── Notification de mise à jour ───────────────────────────────────────────────
 #
-# Câble scripts/shell/install-hook.sh (PVX-090), désormais une fonctionnalité
+# Câble la notification de mise à jour (PVX-090), désormais une fonctionnalité
 # du binaire lui-même : ce script n'a jamais le dépôt sous la main, seulement
 # le binaire qu'il vient de poser, et « pvecli update install-hook » embarque
 # tout ce qu'il faut. Un échec ici n'est pas un échec d'installation : pvecli

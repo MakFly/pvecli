@@ -6,11 +6,17 @@
 # deux coexistent sans se marcher dessus — l'un peut être absent sans casser
 # l'autre.
 #
-# Installation : ajoute cette ligne à ~/.zshrc (ce fichier n'est jamais sourcé
-# tout seul) :
+# CE FICHIER EST UNE COPIE, pas la source. Il est embarqué dans le binaire
+# (cmd/assets/update-notify.sh) et déposé ici par « pvecli update install-hook ».
+# L'éditer sur place fonctionne jusqu'à la prochaine installation, qui le
+# réécrira sans prévenir : passe par le dépôt si tu veux que ça tienne.
 #
-#   [[ -f /chemin/vers/pvecli/scripts/shell/update-notify.zsh ]] && \
-#     source /chemin/vers/pvecli/scripts/shell/update-notify.zsh
+# Installation et retrait — ce fichier n'est jamais sourcé tout seul, un bloc
+# ajouté à ~/.zshrc ou ~/.bashrc s'en charge :
+#
+#   pvecli update install-hook              câble
+#   pvecli update install-hook --uninstall  décâble
+#   pvecli update install-hook --print      imprime, n'écrit rien
 #
 # Toute la logique vit côté Go (`pvecli update check`) : ce script se contente
 # de la lancer sans jamais ralentir l'ouverture du shell ni polluer le prompt.
