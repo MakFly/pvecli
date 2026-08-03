@@ -32,6 +32,7 @@ var (
 	epVersion     = endpoint{"GET", "/version"}
 	epNodes       = endpoint{"GET", "/nodes"}
 	epNodeStatus  = endpoint{"GET", "/nodes/{node}/status"}
+	epNodePower   = endpoint{"POST", "/nodes/{node}/status"}
 	epClusterStat = endpoint{"GET", "/cluster/status"}
 	epPermissions = endpoint{"GET", "/access/permissions"}
 	epClusterRes  = endpoint{"GET", "/cluster/resources"}
@@ -173,6 +174,7 @@ var AllEndpoints = []endpoint{
 	epVersion,
 	epNodes,
 	epNodeStatus,
+	epNodePower,
 	epClusterStat,
 	epPermissions,
 	epClusterRes,

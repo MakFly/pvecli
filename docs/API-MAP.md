@@ -10,6 +10,7 @@ de PVE **9.x** (le lab tourne en 9.2.2, pas en 8.x) ou via
 | `/version` | GET | `pvecli version` | PVX-005 | 2026-07-31 | `pvesh get /version` sur le nœud (PVE 9.2.2) |
 | `/nodes` | GET | `pvecli node ls` | PVX-006 | 2026-07-31 | `pvesh get /nodes` sur le nœud |
 | `/nodes/{node}/status` | GET | `pvecli node show` | PVX-006 | 2026-07-31 | `pvesh get /nodes/pve/status` sur le nœud |
+| `/nodes/{node}/status` | POST | `pvecli node reboot` | PVX-079 | 2026-08-03 | schéma de l'API : `command` ∈ {reboot, shutdown}, privilège `Sys.PowerMgmt` sur `/nodes/{node}` |
 | `/cluster/status` | GET | `pvecli doctor` | PVX-008 | 2026-07-31 | `pvesh get /cluster/status` sur le nœud |
 | `/access/permissions` | GET | `pvecli doctor` | PVX-008 | 2026-07-31 | appel réel avec le token `automation@pve!pvectl` |
 | `/cluster/resources` | GET | `pvecli cluster resources`, `iac inventory\|drift\|adopt` | PVX-016 · 042 · 044 | 2026-07-31 | `pvesh usage /cluster/resources` sur le nœud |
