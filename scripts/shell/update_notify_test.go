@@ -1,6 +1,6 @@
 // Package shell holds test-only coverage for the zsh snippets under
 // scripts/shell/. There is no other Go code here — the snippets are the
-// deliverable — but the previous version of update-notify.zsh shipped with a
+// deliverable — but the previous version of update-notify.sh shipped with a
 // bug (--notify's output was thrown into /dev/null) that no Go test could
 // ever have caught, because every existing test exercised the `pvecli`
 // binary directly and never the shell script the user actually sources.
@@ -49,7 +49,7 @@ func fakePvecli(t *testing.T, binDir, notifyLine, refreshMarker string) {
 
 func snippetPath(t *testing.T) string {
 	t.Helper()
-	abs, err := filepath.Abs("update-notify.zsh")
+	abs, err := filepath.Abs("update-notify.sh")
 	if err != nil {
 		t.Fatalf("resolving snippet path: %v", err)
 	}
@@ -119,6 +119,40 @@ func TestUpdateNotifySnippetIsANoopWithoutPvecli(t *testing.T) {
 	}
 	if string(out) != "" {
 		t.Errorf("output = %q, want strictly empty when pvecli is not on PATH", out)
+	}
+}
+
+// TestUpdateNotifySnippetStaysSilentWithAnOlderPvecli pins a failure that was
+// measured, not imagined: on 2026-08-03 the snippet was added to a real
+// ~/.zshrc while ~/.local/bin/pvecli still held a build predating this story.
+// That binary does not know `update check`, so cobra wrote
+// "Error: unknown flag: --notify" to stderr — on EVERY new terminal.
+//
+// `command -v pvecli` cannot catch this: the binary exists, it is simply too
+// old. The guard has to be on the output, and it has to be on stderr ONLY —
+// redirecting stdout is what broke this feature the first time around.
+func TestUpdateNotifySnippetStaysSilentWithAnOlderPvecli(t *testing.T) {
+	zshPath := requireZsh(t)
+	binDir := t.TempDir()
+
+	// A pvecli that predates `update check`: it fails the way cobra does,
+	// on stderr with a non-zero status.
+	stale := "#!/bin/sh\necho 'Error: unknown flag: --notify' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(binDir, "pvecli"), []byte(stale), 0o755); err != nil {
+		t.Fatalf("écriture du pvecli périmé : %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, zshPath, "-c", "source "+snippetPath(t)+"; sleep 0.3; true")
+	cmd.Env = []string{"PATH=" + binDir + ":/usr/bin:/bin"}
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("an older pvecli must not make the shell error out: %v\noutput: %s", err, out)
+	}
+	if string(out) != "" {
+		t.Errorf("output = %q, want strictly empty: a pvecli too old to know `update check` must stay quiet, not explain itself on every prompt", out)
 	}
 }
 

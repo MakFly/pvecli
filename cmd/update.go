@@ -153,7 +153,7 @@ func runUpdateCheck(cmd *cobra.Command, notify, refresh, force bool) error {
 	// here worth remembering or reporting.
 	if installed == "dev" {
 		if !notify && !refresh {
-			fmt.Fprintln(out, "pvecli compilé localement (dev) — vérification désactivée")
+			_, _ = fmt.Fprintln(out, "pvecli compilé localement (dev) — vérification désactivée")
 		}
 		return nil
 	}
@@ -186,7 +186,7 @@ func runUpdateCheck(cmd *cobra.Command, notify, refresh, force bool) error {
 		if err != nil || c.LatestTag == "" || c.LatestTag == installed {
 			return nil
 		}
-		fmt.Fprintf(out, "%s → %s disponible : https://github.com/%s/releases/latest\n", installed, c.LatestTag, updateRepo)
+		_, _ = fmt.Fprintf(out, "%s → %s disponible : https://github.com/%s/releases/latest\n", installed, c.LatestTag, updateRepo)
 		return nil
 	}
 
@@ -198,16 +198,16 @@ func runUpdateCheck(cmd *cobra.Command, notify, refresh, force bool) error {
 		if fetchErr != nil {
 			reason = fetchErr.Error()
 		}
-		fmt.Fprintf(out, "vérification impossible : %s\n", reason)
+		_, _ = fmt.Fprintf(out, "vérification impossible : %s\n", reason)
 		return nil
 	}
 
 	if tag == installed {
-		fmt.Fprintf(out, "pvecli est à jour (%s)\n", installed)
+		_, _ = fmt.Fprintf(out, "pvecli est à jour (%s)\n", installed)
 		return nil
 	}
 
-	fmt.Fprintf(out, "%s → %s disponible : https://github.com/%s/releases/latest\n", installed, tag, updateRepo)
+	_, _ = fmt.Fprintf(out, "%s → %s disponible : https://github.com/%s/releases/latest\n", installed, tag, updateRepo)
 	return nil
 }
 
@@ -283,7 +283,7 @@ func fetchLatestTag(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("GitHub a répondu %s", resp.Status)

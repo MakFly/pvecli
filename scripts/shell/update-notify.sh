@@ -44,7 +44,17 @@ command -v pvecli >/dev/null 2>&1 || return
 # Premier plan : lecture de cache pure, donc rapide par construction. Rien à
 # mettre en arrière-plan ici — le faire retarderait inutilement la sortie
 # jusqu'après le prompt.
-pvecli update check --notify
+#
+# stderr part au trou, stdout NON : c'est toute la différence avec le bug que
+# ce fichier a déjà eu une fois. La charge utile de --notify sort sur stdout et
+# doit rester visible ; stderr ne peut porter ici qu'un diagnostic destiné à
+# personne. Le cas n'est pas théorique : un `pvecli` ANTÉRIEUR à cette story ne
+# connaît pas `update check` et répond « Error: unknown flag: --notify » — sans
+# cette redirection, ce shell imprimait cette ligne à CHAQUE ouverture de
+# terminal (mesuré le 03-08-2026, sur le poste de l'auteur, dans la minute qui
+# a suivi l'ajout au ~/.zshrc). Un binaire trop vieux, ou à moitié installé,
+# doit se taire, pas s'expliquer.
+pvecli update check --notify 2>/dev/null
 
 # Arrière-plan, détaché. Piège classique : un `cmd &` nu dans un zsh
 # interactif imprime tout de suite un identifiant de job (« [1] 12345 ») ET
