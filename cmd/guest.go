@@ -39,6 +39,7 @@ func newLXCCmd() *cobra.Command {
 	c.AddCommand(newMigrateCmd(pve.TypeLXC))
 	c.AddCommand(newLXCExecCmd())
 	c.AddCommand(newLXCFirewallCmd())
+	c.AddCommand(newLXCDeclareCmd())
 	return c
 }
 

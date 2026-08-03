@@ -112,10 +112,10 @@ Endpoints : GET /api2/json/cluster/resources
 			}
 			play := iac.Tool{Name: iac.AnsiblePlaybookBin, Dir: eff.IaC.AnsibleDir}
 			ping := iac.Tool{Name: iac.AnsibleBin, Dir: eff.IaC.AnsibleDir}
-			if err := play.Look(); err != nil {
+			if err := ensureTool(cmd, play); err != nil {
 				return err
 			}
-			if err := ping.Look(); err != nil {
+			if err := ensureTool(cmd, ping); err != nil {
 				return err
 			}
 			client, err := newClient(cmd)
@@ -606,7 +606,7 @@ func runTerraform(cmd *cobra.Command, verb string, extra []string, confirmFirst 
 		return err
 	}
 	tf := iac.Tool{Name: iac.TerraformBin, Dir: eff.IaC.TerraformDir}
-	if err := tf.Look(); err != nil {
+	if err := ensureTool(cmd, tf); err != nil {
 		return err
 	}
 	client, err := newClient(cmd)
@@ -765,6 +765,12 @@ Endpoints : terraform show -json  ·  GET /api2/json/cluster/resources
 				return err
 			}
 
+			if err := iac.CheckDir("iac.terraform_dir", eff.IaC.TerraformDir); err != nil {
+				return err
+			}
+			if err := ensureTool(cmd, iac.Tool{Name: iac.TerraformBin, Dir: eff.IaC.TerraformDir}); err != nil {
+				return err
+			}
 			declared, err := iac.ReadState(cmd.Context(), eff.IaC.TerraformDir, cmd.ErrOrStderr())
 			if err != nil {
 				return err
@@ -895,6 +901,12 @@ Le dossier interrogé est « iac.terraform_dir » :
 				return err
 			}
 
+			if err := iac.CheckDir("iac.terraform_dir", eff.IaC.TerraformDir); err != nil {
+				return err
+			}
+			if err := ensureTool(cmd, iac.Tool{Name: iac.TerraformBin, Dir: eff.IaC.TerraformDir}); err != nil {
+				return err
+			}
 			declared, err := iac.ReadState(cmd.Context(), eff.IaC.TerraformDir, cmd.ErrOrStderr())
 			if err != nil {
 				return err

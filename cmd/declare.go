@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/MakFly/pvecli/internal/catalog"
 	"github.com/MakFly/pvecli/internal/iac"
@@ -206,6 +207,15 @@ func buildDeclaration(cmd *cobra.Command, name string, o *declareOpts, before *i
 	set("node", func() { vm.Node = o.node })
 	set("user", func() { vm.User = o.user })
 
+	// Creation only, and only on a terminal: a redeclaration keeps the
+	// "only what's typed moves" rule untouched, and a script piping into this
+	// command must never block on a question it did not ask for.
+	if before == nil && stdinIsTerminal() {
+		if err := promptMissingVMFields(cmd, &vm, f); err != nil {
+			return nil, err
+		}
+	}
+
 	// Switching a static VM to DHCP must drop the gateway it no longer needs --
 	// a stale one is refused by the API at apply time. But only the INHERITED
 	// one: a --gateway typed in the same breath as --ip dhcp is a contradiction,
@@ -276,6 +286,60 @@ func buildDeclaration(cmd *cobra.Command, name string, o *declareOpts, before *i
 		return nil, &exitError{code: 2, msg: err.Error()}
 	}
 	return &vm, nil
+}
+
+// promptMissingVMFields asks, one at a time, for every field the operator did
+// not pass as a flag. Order follows the flags' own declaration order, which is
+// also roughly the order a human decides them in: identity, then sizing, then
+// network.
+func promptMissingVMFields(cmd *cobra.Command, vm *iac.VM, f *pflag.FlagSet) error {
+	var err error
+	if !f.Changed("vmid") {
+		if vm.VMID, err = promptInt(cmd, "vmid (identifiant PVE)", vm.VMID); err != nil {
+			return err
+		}
+	}
+	if !f.Changed("cores") {
+		if vm.Cores, err = promptInt(cmd, "cores", vm.Cores); err != nil {
+			return err
+		}
+	}
+	if !f.Changed("memory") {
+		if vm.Memory, err = promptInt(cmd, "memory en Mio (8 Go = 8192)", vm.Memory); err != nil {
+			return err
+		}
+	}
+	if !f.Changed("disk") {
+		if vm.Disk, err = promptInt(cmd, "disk en Gio", vm.Disk); err != nil {
+			return err
+		}
+	}
+	if !f.Changed("template") {
+		if vm.Template, err = promptIntOptional(cmd, "template — vmid à cloner (vide = défaut du module)", vm.Template); err != nil {
+			return err
+		}
+	}
+	if !f.Changed("ip") {
+		if vm.IP, err = promptString(cmd, "ip (dhcp, ou 192.168.1.220/24)", vm.IP); err != nil {
+			return err
+		}
+	}
+	if vm.IP != "dhcp" && !f.Changed("gateway") {
+		if vm.Gateway, err = promptString(cmd, "gateway", vm.Gateway); err != nil {
+			return err
+		}
+	}
+	if !f.Changed("node") {
+		if vm.Node, err = promptString(cmd, "node (vide = défaut du module)", vm.Node); err != nil {
+			return err
+		}
+	}
+	if !f.Changed("user") {
+		if vm.User, err = promptString(cmd, "utilisateur cloud-init", vm.User); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func plural(n int, one, many string) string {

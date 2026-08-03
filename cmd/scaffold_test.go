@@ -30,6 +30,7 @@ func TestScaffoldWritesModuleAndRoles(t *testing.T) {
 	}
 	for _, rel := range []string{
 		filepath.Join(tfDir, "pvecli-vms.tf"),
+		filepath.Join(tfDir, "pvecli-lxc.tf"),
 		filepath.Join(tfDir, "pvecli-base.tf"),
 		filepath.Join(ansDir, "pvecli.yml"),
 		filepath.Join(ansDir, "roles", "docker", "tasks", "main.yml"),

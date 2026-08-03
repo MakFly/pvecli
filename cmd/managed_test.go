@@ -50,7 +50,8 @@ var notDeclaredByTerraform = map[string]string{
 	// effacerait ; ici, il n'y a rien à effacer — c'est l'entrée de Terraform
 	// qu'on édite, et le tag « managed » est justement ce que la commande POSE.
 	// Lui opposer la garde reviendrait à interdire de déclarer ce qu'on déclare.
-	"vm declare": "écrit l'entrée Terraform, pas le nœud — c'est elle qui pose le tag « managed »",
+	"vm declare":  "écrit l'entrée Terraform, pas le nœud — c'est elle qui pose le tag « managed »",
+	"lxc declare": "idem, côté conteneur — écrit l'entrée Terraform, pas le nœud",
 }
 
 // The criterion of PVX-041: no W command escapes the guard.

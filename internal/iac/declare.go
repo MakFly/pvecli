@@ -38,9 +38,36 @@ type VM struct {
 	Tags     []string `json:"tags"`
 }
 
+// LXC is one declared container. The json tags are the object attribute names
+// of `variable "lxcs"` in pvecli-lxc.tf; the two must move together.
+//
+// No User field: the container resource's user_account block takes SSH keys
+// only, not a username -- unlike a cloud-init VM, there is no second account
+// to name.
+type LXC struct {
+	VMID    int    `json:"vmid"`
+	Cores   int    `json:"cores"`
+	Memory  int    `json:"memory"`
+	Disk    int    `json:"disk,omitempty"`
+	IP      string `json:"ip,omitempty"`
+	Gateway string `json:"gateway,omitempty"`
+	Node    string `json:"node,omitempty"`
+	// Template is the CTID to clone. Required, unlike VM.Template: there is no
+	// shared default template for containers to fall back on.
+	Template int `json:"template"`
+	// Unprivileged is never omitted: it is a bool, so omitempty would drop
+	// "false" from the JSON exactly when it matters most, and Terraform's
+	// optional(bool, true) would then silently turn a privileged container
+	// back into an unprivileged one.
+	Unprivileged bool     `json:"unprivileged"`
+	Services     []string `json:"services"`
+	Tags         []string `json:"tags"`
+}
+
 // Declaration is the whole file.
 type Declaration struct {
-	VMs map[string]VM `json:"vms"`
+	VMs  map[string]VM  `json:"vms"`
+	LXCs map[string]LXC `json:"lxcs"`
 }
 
 // OwnerTags are put on every declared VM. "managed" is the ownership guard the
@@ -62,7 +89,7 @@ func DeclarationPath(dir string) string { return filepath.Join(dir, DeclarationF
 func LoadDeclaration(dir string) (*Declaration, error) {
 	raw, err := os.ReadFile(DeclarationPath(dir))
 	if errors.Is(err, fs.ErrNotExist) {
-		return &Declaration{VMs: map[string]VM{}}, nil
+		return &Declaration{VMs: map[string]VM{}, LXCs: map[string]LXC{}}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("lecture de %s : %w", DeclarationPath(dir), err)
@@ -72,13 +99,17 @@ func LoadDeclaration(dir string) (*Declaration, error) {
 	if err := json.Unmarshal(raw, &d); err != nil {
 		return nil, fmt.Errorf(`%s est illisible : %w
 
-Ce fichier est écrit par « pvecli vm declare ». S'il a été édité à la main et
-qu'il est cassé, la déclaration entière est perdue pour Terraform — répare-le
-avant d'aller plus loin, plutôt que de laisser une commande le réécrire`,
+Ce fichier est écrit par « pvecli vm declare » et « pvecli lxc declare ». S'il
+a été édité à la main et qu'il est cassé, la déclaration entière est perdue
+pour Terraform — répare-le avant d'aller plus loin, plutôt que de laisser une
+commande le réécrire`,
 			DeclarationPath(dir), err)
 	}
 	if d.VMs == nil {
 		d.VMs = map[string]VM{}
+	}
+	if d.LXCs == nil {
+		d.LXCs = map[string]LXC{}
 	}
 	return &d, nil
 }
@@ -89,6 +120,9 @@ avant d'aller plus loin, plutôt que de laisser une commande le réécrire`,
 func (d *Declaration) Render() ([]byte, error) {
 	if d.VMs == nil {
 		d.VMs = map[string]VM{}
+	}
+	if d.LXCs == nil {
+		d.LXCs = map[string]LXC{}
 	}
 	raw, err := json.MarshalIndent(d, "", "  ")
 	if err != nil {
@@ -157,6 +191,35 @@ func (vm *VM) SetTags(serviceTags []string) {
 	vm.Tags = tags
 }
 
+// Validate refuses a declaration pvecli-lxc.tf could not use.
+func (ct LXC) Validate(name string) error {
+	switch {
+	case !hostname.MatchString(name):
+		return fmt.Errorf("nom « %s » invalide : minuscules, chiffres et tirets, 63 caractères au plus", name)
+	case ct.VMID < 100:
+		return fmt.Errorf("vmid %d invalide : Proxmox réserve les identifiants en dessous de 100", ct.VMID)
+	case ct.Cores < 1:
+		return fmt.Errorf("cores %d invalide : au moins 1", ct.Cores)
+	case ct.Memory < 512:
+		return fmt.Errorf("memory %d : la valeur est en MIBIOCTETS. 8 Go s'écrit 8192, pas 8", ct.Memory)
+	case ct.Template < 100:
+		return fmt.Errorf("template %d invalide : le ctid à cloner est obligatoire", ct.Template)
+	case ct.IP != "" && ct.IP != "dhcp" && !strings.Contains(ct.IP, "/"):
+		return fmt.Errorf("ip « %s » : il faut un préfixe, ex. 192.168.1.220/24, ou « dhcp »", ct.IP)
+	case ct.IP == "dhcp" && ct.Gateway != "":
+		return errors.New("une passerelle avec « --ip dhcp » : l'API refuse la combinaison, le bail la fournit déjà")
+	}
+	return nil
+}
+
+// SetTags mirrors VM.SetTags for containers.
+func (ct *LXC) SetTags(serviceTags []string) {
+	tags := append([]string{}, OwnerTags...)
+	tags = append(tags, serviceTags...)
+	sort.Strings(tags)
+	ct.Tags = tags
+}
+
 // Change is one field that differs between two versions of a declaration.
 type Change struct {
 	Field  string
@@ -200,6 +263,47 @@ func Diff(before, after *VM) []Change {
 		out = append(out, Change{Field: f.name, Before: b, After: a})
 	}
 	return out
+}
+
+// DiffLXC mirrors Diff for containers.
+func DiffLXC(before, after *LXC) []Change {
+	var out []Change
+	for _, f := range []struct {
+		name string
+		of   func(LXC) string
+	}{
+		{"vmid", func(c LXC) string { return numOrEmpty(c.VMID) }},
+		{"cores", func(c LXC) string { return numOrEmpty(c.Cores) }},
+		{"memory", func(c LXC) string { return withUnit(c.Memory, "Mio") }},
+		{"disk", func(c LXC) string { return withUnit(c.Disk, "Gio") }},
+		{"ip", func(c LXC) string { return c.IP }},
+		{"gateway", func(c LXC) string { return c.Gateway }},
+		{"node", func(c LXC) string { return c.Node }},
+		{"template", func(c LXC) string { return numOrEmpty(c.Template) }},
+		{"unprivileged", func(c LXC) string { return boolStr(c.Unprivileged) }},
+		{"services", func(c LXC) string { return strings.Join(c.Services, ",") }},
+		{"tags", func(c LXC) string { return strings.Join(c.Tags, ",") }},
+	} {
+		var b, a string
+		if before != nil {
+			b = f.of(*before)
+		}
+		if after != nil {
+			a = f.of(*after)
+		}
+		if b == a || (b == "" && a == "") {
+			continue
+		}
+		out = append(out, Change{Field: f.name, Before: b, After: a})
+	}
+	return out
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
 }
 
 func numOrEmpty(n int) string {
