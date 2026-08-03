@@ -18,6 +18,7 @@ type lxcDeclareOpts struct {
 	unprivileged                        bool
 	with                                []string
 	remove                              bool
+	suggestID                           bool
 }
 
 func newLXCDeclareCmd() *cobra.Command {
@@ -61,6 +62,7 @@ suivant — opération destructive, confirmée en retapant le nom.`,
 	f.BoolVar(&o.unprivileged, "unprivileged", true, "conteneur non privilégié")
 	f.StringSliceVar(&o.with, "with", nil, "services du catalogue, séparés par des virgules")
 	f.BoolVar(&o.remove, "remove", false, "retire le LXC de la déclaration")
+	f.BoolVar(&o.suggestID, "suggest-id", false, suggestIDHelp)
 
 	addWriteFlags(c)
 	addRenderFlags(c)
@@ -90,9 +92,15 @@ func runLXCDeclare(cmd *cobra.Command, name string, o *lxcDeclareOpts) error {
 		before = &copyOf
 	}
 
+	// Résolu ici, juste après la pré-lecture -- symétrique de runDeclare (VM).
+	suggested, err := resolveSuggestedID(cmd, name, o.suggestID, cmd.Flags().Changed("vmid"), o.remove, exists, decl)
+	if err != nil {
+		return err
+	}
+
 	var after *iac.LXC
 	if !o.remove {
-		next, err := buildLXCDeclaration(cmd, name, o, before)
+		next, err := buildLXCDeclaration(cmd, name, o, before, suggested)
 		if err != nil {
 			return err
 		}
@@ -175,8 +183,9 @@ func runLXCDeclare(cmd *cobra.Command, name string, o *lxcDeclareOpts) error {
 }
 
 // buildLXCDeclaration mirrors buildDeclaration: only flags actually typed
-// override what is already declared.
-func buildLXCDeclaration(cmd *cobra.Command, name string, o *lxcDeclareOpts, before *iac.LXC) (*iac.LXC, error) {
+// override what is already declared. suggestedVMID mirrors the VM side too --
+// see buildDeclaration's comment.
+func buildLXCDeclaration(cmd *cobra.Command, name string, o *lxcDeclareOpts, before *iac.LXC, suggestedVMID int) (*iac.LXC, error) {
 	ct := iac.LXC{}
 	if before != nil {
 		ct = *before
@@ -199,6 +208,11 @@ func buildLXCDeclaration(cmd *cobra.Command, name string, o *lxcDeclareOpts, bef
 	set("gateway", func() { ct.Gateway = o.gateway })
 	set("node", func() { ct.Node = o.node })
 	set("unprivileged", func() { ct.Unprivileged = o.unprivileged })
+
+	if suggestedVMID != 0 {
+		// Voir le commentaire jumeau dans buildDeclaration (VM).
+		ct.VMID = suggestedVMID
+	}
 
 	// Creation only, and only on a terminal -- see the identical guard in
 	// buildDeclaration (VM side) for why.

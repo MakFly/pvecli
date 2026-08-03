@@ -18,6 +18,7 @@ type declareOpts struct {
 	ip, gateway, node, user             string
 	with                                []string
 	remove                              bool
+	suggestID                           bool
 }
 
 func newVMDeclareCmd() *cobra.Command {
@@ -72,6 +73,7 @@ retapant le nom.`,
 	f.StringVar(&o.user, "user", "", "utilisateur cloud-init (défaut : ops)")
 	f.StringSliceVar(&o.with, "with", nil, "services du catalogue, séparés par des virgules")
 	f.BoolVar(&o.remove, "remove", false, "retire la VM de la déclaration")
+	f.BoolVar(&o.suggestID, "suggest-id", false, suggestIDHelp)
 
 	addWriteFlags(c)
 	addRenderFlags(c)
@@ -101,9 +103,16 @@ func runDeclare(cmd *cobra.Command, name string, o *declareOpts) error {
 		before = &copyOf
 	}
 
+	// Résolu ici, juste après la pré-lecture : c'est le seul endroit qui voit
+	// à la fois « exists » et le cas --remove, qui saute buildDeclaration.
+	suggested, err := resolveSuggestedID(cmd, name, o.suggestID, cmd.Flags().Changed("vmid"), o.remove, exists, decl)
+	if err != nil {
+		return err
+	}
+
 	var after *iac.VM
 	if !o.remove {
-		next, err := buildDeclaration(cmd, name, o, before)
+		next, err := buildDeclaration(cmd, name, o, before, suggested)
 		if err != nil {
 			return err
 		}
@@ -190,7 +199,11 @@ func runDeclare(cmd *cobra.Command, name string, o *declareOpts) error {
 // buildDeclaration merges the flags actually given onto what is already
 // declared. Only flags the operator typed override -- that is what makes
 // `declare app-01 --memory 16384` a resize instead of a reset to defaults.
-func buildDeclaration(cmd *cobra.Command, name string, o *declareOpts, before *iac.VM) (*iac.VM, error) {
+//
+// suggestedVMID is 0 unless --suggest-id was resolved by the caller (its
+// refusals guarantee before == nil whenever it is non-zero: --suggest-id on
+// an existing entry is refused before buildDeclaration is even called).
+func buildDeclaration(cmd *cobra.Command, name string, o *declareOpts, before *iac.VM, suggestedVMID int) (*iac.VM, error) {
 	vm := iac.VM{}
 	if before != nil {
 		vm = *before
@@ -215,6 +228,14 @@ func buildDeclaration(cmd *cobra.Command, name string, o *declareOpts, before *i
 	set("gateway", func() { vm.Gateway = o.gateway })
 	set("node", func() { vm.Node = o.node })
 	set("user", func() { vm.User = o.user })
+
+	if suggestedVMID != 0 {
+		// Posé AVANT le bloc assistant qui suit : c'est ce qui fait apparaître
+		// le vmid suggéré comme défaut de promptInt (« [235] »), sans changer
+		// sa signature -- et ce qui fait tenir la garde « obligatoire à la
+		// création » côté --yes, où l'assistant est sauté.
+		vm.VMID = suggestedVMID
+	}
 
 	// Creation only, and only on a terminal: a redeclaration keeps the
 	// "only what's typed moves" rule untouched, and a script piping into this

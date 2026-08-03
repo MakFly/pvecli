@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/MakFly/pvecli/internal/iac"
+	"github.com/MakFly/pvecli/internal/testutil"
 )
 
 func readDeclaration(t *testing.T, tfDir string) *iac.Declaration {
@@ -279,6 +281,199 @@ func TestDeclareRequiresTheCreationFieldsOnlyOnCreation(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("le message doit nommer %s : %v", want, err)
 		}
+	}
+}
+
+// L'invariant central de la mission : sans --suggest-id, « vm declare » ne
+// construit jamais de client, même quand un serveur de rejeu tourne et est
+// prêt à répondre. len(srv.Requests) == 0 est la preuve -- pas une inférence
+// depuis le message d'erreur, qui pourrait mentir.
+func TestDeclareStaysOfflineWithoutSuggestID(t *testing.T) {
+	scaffoldDirs(t)
+	srv := testutil.New(t, "../testdata", map[string]string{
+		"GET /api2/json/cluster/nextid": "cluster-nextid.json",
+	})
+	point(t, srv.URL)
+
+	_, _, err := run(t, "vm", "declare", "app-01", "--cores", "2", "--memory", "8192", "--with", "", "--yes")
+	if err == nil {
+		t.Fatal("une création sans --vmid ni --suggest-id doit être refusée")
+	}
+	if !strings.Contains(err.Error(), "obligatoire") {
+		t.Errorf("le message doit rappeler le champ obligatoire : %v", err)
+	}
+	if len(srv.Requests) != 0 {
+		t.Errorf("aucune requête ne doit partir sans --suggest-id, reçu : %v", srv.Requests)
+	}
+}
+
+// Le chemin nominal : --suggest-id contacte le nœud, et le vmid proposé se
+// retrouve dans la déclaration écrite sur disque.
+func TestDeclareSuggestIDWritesTheProposedVMID(t *testing.T) {
+	tfDir, _ := scaffoldDirs(t)
+	srv := testutil.New(t, "../testdata", map[string]string{
+		"GET /api2/json/cluster/nextid": "cluster-nextid.json",
+	})
+	point(t, srv.URL)
+
+	if _, _, err := run(t, "vm", "declare", "app-01",
+		"--suggest-id", "--cores", "2", "--memory", "8192", "--with", "", "--yes"); err != nil {
+		t.Fatalf("vm declare --suggest-id : %v", err)
+	}
+
+	vm, ok := readDeclaration(t, tfDir).VMs["app-01"]
+	if !ok {
+		t.Fatal("app-01 absente de la déclaration")
+	}
+	if vm.VMID != 235 {
+		t.Errorf("vmid = %d, want 235 (proposé par la fixture cluster-nextid.json)", vm.VMID)
+	}
+}
+
+// --vmid et --suggest-id sont deux sources pour le même champ : un refus, pas
+// un mélange silencieux -- et le refus doit précéder tout appel réseau.
+func TestDeclareRefusesVMIDWithSuggestID(t *testing.T) {
+	scaffoldDirs(t)
+	srv := testutil.New(t, "../testdata", map[string]string{
+		"GET /api2/json/cluster/nextid": "cluster-nextid.json",
+	})
+	point(t, srv.URL)
+
+	_, _, err := run(t, "vm", "declare", "app-01",
+		"--vmid", "220", "--suggest-id", "--cores", "2", "--memory", "8192", "--with", "", "--yes")
+	if err == nil {
+		t.Fatal("--vmid et --suggest-id ensemble doivent être refusés")
+	}
+	var coded interface{ ExitCode() int }
+	if !errors.As(err, &coded) || coded.ExitCode() != 2 {
+		t.Errorf("code de sortie = %v, want 2", err)
+	}
+	if len(srv.Requests) != 0 {
+		t.Errorf("le refus doit précéder tout appel réseau, reçu : %v", srv.Requests)
+	}
+}
+
+// --remove et --suggest-id ensemble : --remove ne crée rien à numéroter, donc
+// rien à suggérer non plus. Refusé avant tout appel réseau, entrée absente ou
+// pas -- ce refus doit tirer AVANT le contrôle « exists-t-elle vraiment ? ».
+func TestDeclareRefusesRemoveWithSuggestID(t *testing.T) {
+	scaffoldDirs(t)
+	srv := testutil.New(t, "../testdata", map[string]string{
+		"GET /api2/json/cluster/nextid": "cluster-nextid.json",
+	})
+	point(t, srv.URL)
+
+	_, _, err := run(t, "vm", "declare", "app-01", "--remove", "--suggest-id", "--yes")
+	if err == nil {
+		t.Fatal("--remove et --suggest-id ensemble doivent être refusés")
+	}
+	var coded interface{ ExitCode() int }
+	if !errors.As(err, &coded) || coded.ExitCode() != 2 {
+		t.Errorf("code de sortie = %v, want 2", err)
+	}
+	if len(srv.Requests) != 0 {
+		t.Errorf("le refus doit précéder tout appel réseau, reçu : %v", srv.Requests)
+	}
+}
+
+// --suggest-id sur une entrée déjà déclarée ne peut vouloir dire que
+// « renumérote-la », ce que cette option ne fait pas -- côté Terraform, changer
+// le vmid d'un guest vivant est un destroy+create, pas une mise à jour.
+func TestDeclareRefusesSuggestIDOnAnExistingEntry(t *testing.T) {
+	scaffoldDirs(t)
+	if _, _, err := run(t, "vm", "declare", "app-01",
+		"--vmid", "220", "--cores", "2", "--memory", "8192", "--with", "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := testutil.New(t, "../testdata", map[string]string{
+		"GET /api2/json/cluster/nextid": "cluster-nextid.json",
+	})
+	point(t, srv.URL)
+
+	_, _, err := run(t, "vm", "declare", "app-01", "--suggest-id", "--yes")
+	if err == nil {
+		t.Fatal("--suggest-id sur une entrée déjà déclarée doit être refusé")
+	}
+	var coded interface{ ExitCode() int }
+	if !errors.As(err, &coded) || coded.ExitCode() != 2 {
+		t.Errorf("code de sortie = %v, want 2", err)
+	}
+	if len(srv.Requests) != 0 {
+		t.Errorf("le refus doit précéder tout appel réseau, reçu : %v", srv.Requests)
+	}
+}
+
+// /cluster/nextid ne connaît que le cluster, jamais la déclaration locale que
+// cette même commande est en train d'écrire à côté : deux --suggest-id
+// d'affilée avant un « iac apply » doivent recevoir deux vmid DIFFÉRENTS, pas
+// silencieusement le même. Un seul appel réseau par invocation : l'ajustement
+// est purement local.
+func TestDeclareSuggestIDAvoidsALocalCollision(t *testing.T) {
+	tfDir, _ := scaffoldDirs(t)
+	srv := testutil.New(t, "../testdata", map[string]string{
+		"GET /api2/json/cluster/nextid": "cluster-nextid.json",
+	})
+	point(t, srv.URL)
+
+	if _, _, err := run(t, "vm", "declare", "app-01",
+		"--suggest-id", "--cores", "2", "--memory", "8192", "--with", "", "--yes"); err != nil {
+		t.Fatalf("app-01 : %v", err)
+	}
+	_, stderr, err := run(t, "vm", "declare", "app-02",
+		"--suggest-id", "--cores", "2", "--memory", "8192", "--with", "", "--yes")
+	if err != nil {
+		t.Fatalf("app-02 : %v", err)
+	}
+	// Une troisième déclaration : si l'ajustement local ne faisait qu'un seul
+	// pas (`if` au lieu d'un `for`), app-03 recevrait encore 236 -- déjà pris
+	// par app-02 -- au lieu d'avancer jusqu'au prochain id vraiment libre.
+	if _, _, err := run(t, "vm", "declare", "app-03",
+		"--suggest-id", "--cores", "2", "--memory", "8192", "--with", "", "--yes"); err != nil {
+		t.Fatalf("app-03 : %v", err)
+	}
+
+	d := readDeclaration(t, tfDir)
+	if d.VMs["app-01"].VMID != 235 {
+		t.Errorf("app-01 vmid = %d, want 235", d.VMs["app-01"].VMID)
+	}
+	if d.VMs["app-02"].VMID != 236 {
+		t.Errorf("app-02 vmid = %d, want 236 (235 déjà revendiqué par app-01)", d.VMs["app-02"].VMID)
+	}
+	if d.VMs["app-03"].VMID != 237 {
+		t.Errorf("app-03 vmid = %d, want 237 (235 et 236 déjà revendiqués) : l'ajustement doit avancer d'autant de pas que nécessaire, pas d'un seul", d.VMs["app-03"].VMID)
+	}
+	if !strings.Contains(stderr, "déjà revendiqué") {
+		t.Errorf("le message doit dire que l'ajustement a eu lieu :\n%s", stderr)
+	}
+	if len(srv.Requests) != 3 {
+		t.Errorf("un seul appel réseau par invocation attendu (3 au total), reçu : %v", srv.Requests)
+	}
+}
+
+// Le même compteur de vmid est partagé entre VM et LXC côté PVE : une
+// suggestion sur une VM doit éviter un vmid déjà pris par un conteneur
+// déclaré, symétrique de TestLXCDeclareSuggestIDAvoidsAVMIDHeldByAVM.
+func TestDeclareSuggestIDAvoidsAVMIDHeldByALXC(t *testing.T) {
+	tfDir, _ := scaffoldDirs(t)
+	srv := testutil.New(t, "../testdata", map[string]string{
+		"GET /api2/json/cluster/nextid": "cluster-nextid.json",
+	})
+	point(t, srv.URL)
+
+	if _, _, err := run(t, "lxc", "declare", "ct-01",
+		"--vmid", "235", "--cores", "1", "--memory", "2048", "--template", "200",
+		"--with", "", "--yes"); err != nil {
+		t.Fatalf("ct-01 : %v", err)
+	}
+	if _, _, err := run(t, "vm", "declare", "app-01",
+		"--suggest-id", "--cores", "2", "--memory", "8192", "--with", "", "--yes"); err != nil {
+		t.Fatalf("app-01 : %v", err)
+	}
+
+	d := readDeclaration(t, tfDir)
+	if d.VMs["app-01"].VMID != 236 {
+		t.Errorf("app-01 vmid = %d, want 236 (235 déjà tenu par le LXC ct-01)", d.VMs["app-01"].VMID)
 	}
 }
 
