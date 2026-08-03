@@ -1304,3 +1304,200 @@ précis, vérifier ce que ce nom **contient** avant de l'appliquer. `PVEVMUser` 
 `allow` décrivaient tous les deux l'inverse de l'intention, aucun des deux
 n'aurait produit d'erreur, et le second aurait ouvert l'hyperviseur à tout
 l'internet en ayant l'air correct.
+
+## 2026-08-01 — M12, PVX-078 → PVX-081, l'outil ouvre sa propre porte
+
+**Endpoints** — `POST /access/ticket`, `POST /access/users/{id}/token/{t}`,
+`PUT /access/acl`. Le premier est le seul de tout le projet qu'on appelle **sans
+identifiant** : c'est lui qui en produit.
+
+**Le lot répare une circularité.** Toutes les commandes s'authentifient par
+token, et aucune ne savait en créer un. Fabriquer le premier token exigeait donc
+un accès SSH au nœud pour lancer `pveum` — exactement l'accès que cette CLI
+existe pour rendre inutile. `pvecli login` échange un mot de passe contre un
+ticket, puis se sert du ticket pour créer l'utilisateur, le token et l'ACL.
+
+**Ce que PVX-003 avait établi en théorie se paie ici en code.** Un ticket exige
+un `CSRFPreventionToken` sur toute écriture ; un token en est dispensé, parce
+qu'un token n'est jamais attaché automatiquement à une requête. `login` est donc
+le **seul** chemin du client qui doit poser cet en-tête — et seulement sur les
+méthodes autres que `GET`. La dispense n'était pas une simplification qu'on
+s'accordait : c'était une propriété du vecteur d'attaque, et elle cesse d'être
+vraie dès qu'on repasse par un ticket.
+
+**Le secret d'un token ne se montre qu'une fois**, le nœud ne le stocke pas en
+clair. `login` est donc rejouable *sauf* sur ce point : utilisateur et ACL sont
+réappliqués sans bruit, un token existant est laissé en place — et ne peut pas
+rendre son secret une seconde fois. Pour en repartir, il faut le détruire.
+
+**La leçon du lot est arrivée le lendemain, et elle ne vient pas du code.** Le
+secret du token fraîchement créé a été déclaré introuvable sur le poste Linux,
+et cherché comme une perte. Il était sur le disque depuis sa création, dans
+`~/.config/pvecli/secret`. Ce n'était pas une perte, c'était un **câblage
+manquant** : `pvecli` ne consulte que trois sources — l'environnement, une
+commande dont la sortie *est* le secret, le trousseau du système — et aucune des
+trois ne pointait sur ce fichier. Branché en une ligne
+(`config set secret_command "cat …/secret"`), `doctor` repasse au vert sans
+qu'aucune variable d'environnement ne soit exportée.
+
+D'où la formulation de `auth status`, qui est la vraie livraison du lot :
+**il répond « ABSENT » quand le secret n'est pas *atteignable*, jamais quand il
+n'existe pas.** Il ne peut pas connaître la seconde question. C'est la famille de
+PVX-032 (« aucune ACL **VISIBLE** ») rencontrée une seconde fois : une commande
+qui ne peut pas savoir doit le dire, sous peine d'envoyer chercher au mauvais
+endroit. Le champ `secret_source` existe pour la même raison — restreindre la
+recherche à une seule source, pour qu'une erreur se **voie** au lieu d'être
+rattrapée en silence par une source moins fraîche.
+
+**Erreur commise — l'automatisation qui défait le travail en cours.** Le timer
+d'auto-update installe la dernière release publiée. Un binaire issu d'un
+`make install` porte la version `dev` et contient presque toujours **plus** que
+cette release : le remplacer la nuit fait disparaître le correctif qu'on était
+en train de tester, et la panne du lendemain se cherche partout sauf là.
+`install.sh` refuse donc d'écraser un binaire `dev`, et dit comment repasser sur
+la release quand c'est ce qu'on veut. Le timer est par ailleurs `Persistent=true`
+— sans quoi un `OnCalendar=daily` tombé pendant que le poste est éteint est
+simplement sauté, et la mise à jour n'arrive jamais.
+
+**Règle retenue** — une commande de diagnostic doit distinguer « je n'ai pas
+trouvé » de « ça n'existe pas », et une automatisation doit distinguer ce qu'elle
+a posé de ce que quelqu'un a posé à la main. Les deux moitiés du lot disent la
+même chose : l'outil ne doit jamais parler d'un monde qu'il n'observe pas.
+
+## 2026-08-02 — M13, PVX-074 → PVX-077, entrer dans un invité, planifier ce qui le sauve
+
+**Endpoints** — `POST /nodes/{n}/lxc/{vmid}/termproxy` et
+`GET .../vncwebsocket` ; `.../lxc/{vmid}/firewall/{options,rules[,/{pos}]}` et
+`/cluster/firewall/{options,ipset*}` ; `/cluster/backup[/{id}]` en GET, POST,
+PUT, DELETE ; côté QEMU `.../agent/exec` et `.../agent/exec-status`.
+
+**LXC n'a AUCUN endpoint d'exec, et ce n'est pas un oubli.** QEMU en a un parce
+qu'il y a un agent *dans* l'invité pour l'exécuter. Un conteneur n'a pas
+d'agent : `pct exec` entre dans ses namespaces **depuis l'hôte**, ce qui est une
+commande hôte et n'a rien à faire dans `/api2/json`. Les outils matures ne
+proposent donc pas d'`lxc exec` par API — ils exigent SSH ou `pct`. Le seul
+canal qui reste vers l'intérieur est la **console**.
+
+**Et la console d'un LXC est un `getty`, pas un shell.** Trois réalités que seul
+le nœud a révélées, aucune anticipée par la story : il faut **s'authentifier**
+(un conteneur sans mot de passe n'a pas de console utilisable) ; le getty ne
+flushe qu'après une entrée, donc on pousse un `\n` pour le faire réafficher son
+prompt avant de le lire ; et c'est un **PTY**, donc sortie et erreur mêlées et
+écho de l'entrée. On neutralise : `stty -echo`, script passé en base64, sortie
+encadrée par des sentinelles fabriquées par `printf` — jamais présentes dans la
+ligne tapée — et code retour imprimé puis relu. Ça reste une console, pas un
+`execve` : pour du binaire ou du volumineux, on redirige vers un fichier.
+
+**Surprise de sérialisation** — PVE 9.2 rend `out-truncated` et `err-truncated`
+en **nombre**, là où le schéma annonce un booléen. Tout `vm agent exec` plantait
+au décodage, sur un champ dont personne ne lit jamais la valeur.
+
+**Le firewall d'un guest ne filtre que si le firewall DATACENTER est actif** —
+et l'activer sur un nœud qu'on ne joint que par l'API peut couper 8006 et 22
+sans recours autre que la console physique. `lxc firewall enable` pose donc le
+guest et le drapeau `firewall=1` sur `net0` (sans lui, rien ne filtre non plus),
+mais **n'active jamais** le datacenter : il se contente d'avertir qu'il est
+éteint. Une commande ne doit pas prendre à la place de l'opérateur une décision
+qui peut le verrouiller dehors.
+
+**Un défaut d'API peut être un piège de production.** `prune-backups` vaut
+`keep-all=1` par défaut : un job planifié sans rétention explicite ne purge
+**rien, jamais**, et remplit le stockage jusqu'à la panne de disque que la
+sauvegarde existait pour absorber. C'est un défaut sûr du point de vue de PVE —
+il ne supprime rien — et catastrophique du point de vue de l'exploitant.
+`backup job create` exige donc un `--keep-*` que l'API n'exige pas.
+
+**Le piège du lot ne produit aucune erreur, encore une fois.** `prune-backups`
+est **une** valeur, pas six champs indépendants : un `set --keep-last 5` qui
+n'envoie que ce compteur **efface** le `keep-daily=7` posé la veille, et la nuit
+suivante supprime des archives que personne n'a demandé de supprimer. D'où le
+read-merge-write, et le plan qui affiche la politique **complète**. Même famille
+pour `remove=0`, qui désarme une rétention tout en la laissant parfaitement
+lisible : `ls` affiche donc « keep-last=3 (INERTE : remove=0) », et `set` refuse
+de la rallumer en douce.
+
+**Le mur du lot, et la raison pour laquelle il n'est pas clos.** Les écritures
+sur `/cluster/backup` exigent `Sys.Modify` sur `/`. Or une ACL accorde un
+**rôle**, pas un privilège — et sur les 17 rôles intégrés du nœud, relevés dans
+`testdata/roles.json`, **seul `Administrator` porte `Sys.Modify`**. Le donner sur
+`/` serait `root@pam` sous un autre nom. La sortie propre est un rôle sur
+mesure, donc `POST /access/roles`, que `pvecli` n'expose pas : `access role` est
+en lecture seule. Accorder proprement le droit de planifier une sauvegarde
+**oblige aujourd'hui à sortir de pvecli** — c'est PVX-077, et c'est ce qui
+laisse M13 ouvert. Le constat qui a motivé tout le lot tient en une commande :
+`backup job ls` répond, et ne liste **aucun** job planifié sur ce nœud.
+
+**Règle retenue** — le défaut d'une API décrit ce que le **serveur** considère
+sûr. Ce que l'**exploitant** considère sûr est une autre question, et personne
+d'autre que la CLI n'est là pour la poser. `keep-all=1`, `remove=0` et un
+firewall guest sans firewall datacenter sont trois manières de tout faire
+répondre correctement en ne protégeant rien.
+
+---
+
+## 2026-08-03 — PVX-082 → PVX-085, et le mur mesuré au lieu d'être supposé
+
+**Endpoints** — `/storage[/{storage}]` en GET, POST, PUT, DELETE ;
+`POST /nodes/{n}/status` (`command=reboot`). Plus un rôle Ansible `caddy` au
+catalogue, qui n'ajoute aucun endpoint.
+
+**Ce qu'un 200 ne prouve pas.** `POST /nodes/{node}/status` ne rend **aucun
+UPID** — un nœud ne peut pas rapporter sur une tâche dont l'objet est qu'il
+cesse de répondre. Le 200 est une *acceptation*, pas un succès, donc la preuve
+doit venir de l'extérieur. Et la preuve évidente est fausse : le nœud continue
+de répondre plusieurs secondes après avoir accepté, pendant que systemd descend
+ses units. Une sonde qui s'arrête au premier GET réussi annonce « revenu »
+d'une machine qui n'est pas encore tombée. La preuve retenue est un **uptime
+qui redescend** : il croît de façon monotone et ne peut chuter qu'à travers un
+boot, donc une valeur plus basse est la seule observation qu'un nœud n'ayant pas
+redémarré est incapable de produire.
+
+**Une garantie qu'aucun test ne peut contredire n'est pas une garantie.**
+`nodeReturnProbe` prend une *fonction* de statut et son intervalle, pas un
+client et un `sleep` en dur — sans quoi la sonde ne serait exerçable que contre
+un vrai nœud en train de redémarrer, c'est-à-dire jamais. La forme de la
+signature est ici dictée par la testabilité, pas par l'élégance.
+
+**Le mur de M13, enfin mesuré.** Le 02-08 il était déduit du source ; le 03-08
+il est constaté, et il est **pire que décrit** :
+
+- `access role add` — la commande livrée par PVX-077 pour franchir le mur —
+  répond `403 Permission check failed (/access, Sys.Modify)`. Créer le rôle de
+  moindre privilège exige donc soi-même un privilège que seul `Administrator`
+  porte. **La commande ne peut pas être exécutée par le token qu'elle existe
+  pour affranchir.**
+- `backup job create` répond `403 Permission check failed (/, Sys.Modify)`,
+  comme prévu.
+- Et surtout : **`PVEAdmin` ne porte pas `Sys.Modify`.** Ses seuls privilèges
+  `Sys.*` sont `Sys.Audit`, `Sys.Console`, `Sys.Syslog`. Or `pvecli login`
+  attache `PVEAdmin` par défaut. **L'amorçage de M12 ne peut donc structurellement
+  pas amener jusqu'à ce mur** : il faut `--role Administrator`, ou un mot de
+  passe `root@pam` à chaque franchissement.
+
+**La leçon, et elle est générale** — un privilège ne se délègue pas en une
+étape. Pour accorder `Sys.Modify` à un token, il faut `Sys.Modify` sur
+`/access`. La chaîne d'amorçage ne se termine jamais dans l'outil : elle se
+termine toujours sur une identité que l'outil n'a pas fabriquée. Une CLI
+d'automatisation peut supprimer le SSH de l'exploitation quotidienne ; elle ne
+peut pas le supprimer de sa propre racine de confiance. Le dire est plus honnête
+que de laisser croire l'inverse.
+
+**Ce que le nœud a appris en passant** — un rôle sur mesure `node-sysmodify`
+(`Sys.Audit`, `Sys.Modify`) existe déjà, mais posé sur **`/nodes/pve`**. Les
+jobs de sauvegarde exigent `Sys.Modify` sur **`/`** : une ACL au bon rôle et au
+mauvais chemin ne donne rien, et ne produit aucun message le disant. Le nœud est
+par ailleurs en PVE **9.2.6** là où la configuration mémorisait 9.2.2.
+`backup job ls` répond toujours, et ne liste toujours **aucun** job planifié :
+le RPO de ce cluster reste infini au 03-08.
+
+**PVX-085 — la couverture d'API-MAP appariait sur le motif seul.** Un chemin
+documenté pour une méthode couvrait en silence toutes les autres. Le test
+apparie désormais **(méthode, chemin)** en analysant la table plutôt que le
+fichier comme une chaîne. Vérification faite : les 7 endpoints que le commit de
+`node reboot` soupçonnait sont en réalité documentés, par les cellules combinées
+`GET · POST`. Un second test épingle la discrimination elle-même — sans lui,
+resserrer le test aurait été invérifiable, exactement le défaut qu'il corrige.
+
+**Règle retenue** — un test de couverture qui ne peut pas échouer documente une
+intention, pas un fait. Avant de croire qu'un resserrement a servi, il faut
+l'avoir vu refuser quelque chose.

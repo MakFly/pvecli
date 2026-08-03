@@ -1,11 +1,186 @@
 # Backlog — post-M7
 
-> Idées et dettes identifiées après la fin de lot M7. Non planifiées : chaque
-> story y attend une décision d'architecture avant d'entrer dans un lot.
+> Registre des stories nées après la fin de lot M7, là où `stories/M0…M7` couvrent
+> le périmètre du PRD. Certaines sont livrées et rattachées à un lot ; celles qui
+> ne le sont pas attendent encore une décision d'architecture.
+>
+> | Story | Lot | Statut |
+> | --- | --- | --- |
+> | PVX-074 `lxc exec` | M13 Exploitation | ✅ livré |
+> | PVX-075 firewall guest + IPSet | M13 Exploitation | ✅ livré |
+> | PVX-076 jobs de sauvegarde planifiés | M13 Exploitation | ✅ livré — écritures murées par `Sys.Modify` |
+> | PVX-077 rôles sur mesure (`access role add`) | M13 Exploitation | ✅ livré — mais `403 (/access, Sys.Modify)` le 03-08 : la commande bute sur le mur qu'elle doit franchir |
+> | PVX-078 `vm agent exec` | M12 Amorçage & secret | ✅ livré |
+> | PVX-079 `pvecli login` | M12 Amorçage & secret | ✅ livré |
+> | PVX-080 les trois sources du secret | M12 Amorçage & secret | ✅ livré |
+> | PVX-081 timer d'auto-update | M12 Amorçage & secret | ✅ livré |
+> | PVX-082 `caddy` au catalogue | — | ✅ livré |
+> | PVX-083 définitions de stockage (`/storage`) | — | ✅ livré |
+> | PVX-084 `node reboot` | — | ✅ livré |
+> | PVX-085 couverture d'API-MAP par (méthode, chemin) | — | ✅ livré |
+> | PVX-086 preuve live de M13 | M13 Exploitation | 🔴 **RAF** — bloqué : exige une identité `Administrator` |
+> | PVX-087 preuve live de M11 | M11 Accès délégué | 🔴 **RAF** — bloqué : `403 (/access/acl, Permissions.Modify)` |
+> | PVX-088 capturer les fixtures de job de sauvegarde | M13 Exploitation | 🔴 **RAF** — dépend de PVX-086 |
+> | PVX-089 secret en clair sur le poste Linux | M12 Amorçage & secret | 🔴 **RAF** — réglé sur le Mac le 03-08 |
 
 ---
 
-### PVX-078 — `caddy` au catalogue : le reverse proxy partagé cesse d'être posé à la main
+## Reste à faire, au 2026-08-03
+
+Quatre stories, et **trois d'entre elles butent sur la même chose** : déléguer un
+droit exige un droit que le compte délégué n'a pas. Mesuré, pas supposé.
+
+### PVX-086 — preuve live de M13 : du rôle sur mesure au job qui survit
+
+**Taille** S · **Type** ⚙ · **Lot** M13 · **Dépend de** PVX-077 · **Statut** 🔴 RAF
+
+C'est le **seul** reste de M13 : le code est livré depuis le 02-08, la séquence
+n'est jouée nulle part. Le blocage, mesuré le 03-08 : `access role add` répond
+`403 (/access, Sys.Modify)`, `backup job create` répond `403 (/, Sys.Modify)`,
+et **`PVEAdmin` — que `pvecli login` attache par défaut — ne porte pas
+`Sys.Modify`**. Il faut donc une identité `Administrator`, que l'outil ne
+fabrique pas.
+
+```sh
+pvecli login --user root@pam --role Administrator --token-name pvectl-adm
+pvecli access role add ops-backup-job \
+    --privs Sys.Audit,Sys.Modify,VM.Backup,Datastore.Audit,Datastore.AllocateSpace
+pvecli access acl set --path / --role ops-backup-job --token automation@pve!pvectl-cc
+pvecli backup job create --all --storage local --schedule '02:30' --keep-last 3
+```
+
+Attention au **chemin** : les jobs exigent `Sys.Modify` sur `/`, pas sur
+`/nodes/pve`. Le rôle `node-sysmodify` existe déjà sur le nœud, mais posé sur
+`/nodes/pve` — bon rôle, mauvais chemin, et rien ne le signale.
+
+### PVX-087 — preuve live de M11 : quelqu'un d'autre pilote ses propres VM
+
+**Taille** M · **Type** ⚙ · **Lot** M11 · **Statut** 🔴 RAF
+
+Séquence inchangée depuis M11 : `access user create` → `pool create` → trois ACL
+→ `cf access app/policy/token` → `cf route add`. Le mur est de la même famille
+que PVX-086, et il est désormais mesuré : `access acl set` répond
+`403 (/access/acl, Permissions.Modify)` pour le token `pvectl`.
+
+### PVX-088 — capturer les fixtures de job de sauvegarde
+
+**Taille** S · **Type** 🧪 · **Lot** M13 · **Dépend de** PVX-086 · **Statut** 🔴 RAF
+
+`testdata/backup-job{,s}.json` sont **dérivés du schéma**, pas capturés : ils
+prouvent ce qu'on a compris du schéma, pas ce que le nœud rend. PVX-078 a montré
+que l'écart existe — PVE 9.2 rend `out-truncated` en *nombre* là où le schéma
+annonce un booléen. La capture exige au moins un job existant, donc PVX-086
+d'abord.
+
+### PVX-089 — le poste Linux lit encore le secret dans un fichier en clair
+
+**Taille** S · **Type** ⚙ · **Lot** M12 · **Statut** 🔴 RAF
+
+D1 dit « Keychain, jamais de fichier en clair ». Tant que la source est
+`~/.config/pvecli/secret`, le câblage par `secret_command` **contourne** la
+décision au lieu de l'appliquer. Réglé sur le Mac le 03-08 en pointant
+`secret_command` sur le trousseau — `doctor` y est vert sans aucune variable
+d'environnement. Reste le poste Linux, où libsecret doit remplacer le fichier.
+
+*(Détail : l'entrée du trousseau du Mac porte encore l'ancien nom
+`pvectl-token`/`pvectl`, resté du renommage M8. À normaliser en interactif :
+`security add-generic-password -U -s pvecli -a lab -w`.)*
+
+---
+
+### PVX-085 — la couverture d'API-MAP appariait sur le motif seul
+
+**Taille** S · **Type** 🧪 · **Statut** ✅ livré — 2026-08-03
+
+**Le trou constaté** — relevé par le commit de PVX-084, non corrigé par lui.
+`TestAPIMapCoverage` cherchait le *motif* d'endpoint comme une sous-chaîne du
+fichier entier : un chemin déjà documenté pour **une** méthode se portait donc
+garant de **toutes** les autres. Or la règle du PRD §6.3 — « aucun endpoint
+écrit de mémoire » — porte sur un *appel*, et un appel est une méthode **et** un
+chemin. Le schéma d'un `POST` n'est pas celui du `GET` de même chemin ; c'est
+précisément le schéma qu'on est censé avoir vérifié.
+
+**Livré** : `documentedMethods` analyse la **table** de `docs/API-MAP.md` au lieu
+de traiter le fichier comme une chaîne, et rend, par motif, l'ensemble des
+méthodes réellement documentées — en tenant compte des cellules combinées
+`GET · POST`, qui documentent légitimement deux méthodes en une ligne.
+`TestAPIMapCoverage` apparie désormais le couple `(méthode, chemin)`.
+
+**Le résultat contredit le soupçon, et c'est le point.** Le commit de PVX-084
+annonçait 8 endpoints passant par ce trou, 7 antérieurs. Le test resserré en
+trouve **zéro** : les 7 sont documentés, par les cellules `GET · POST`. Le trou
+était réel dans la mécanique du test, pas dans le contenu du fichier — et rien
+d'autre qu'un test resserré ne pouvait faire la différence entre les deux.
+
+**Un second test, sans lequel le premier ne vaut rien.**
+`TestAPIMapCoverageDistinguishesMethods` épingle la discrimination elle-même :
+trois méthodes absentes de la table (`POST /version`, `DELETE
+/nodes/{node}/status`, `PUT /cluster/resources`) doivent être vues comme
+manquantes, dont une sur un chemin qui porte légitimement deux autres méthodes.
+Sans lui, un resserrement qui passe du premier coup est indiscernable d'un
+resserrement qui ne teste rien.
+
+**Ce que ça doit t'apprendre** — un test de couverture qui ne peut pas échouer
+documente une intention, pas un fait. Avant de croire qu'un resserrement a
+servi, il faut l'avoir vu refuser quelque chose.
+
+---
+
+### PVX-084 — `node reboot` : redémarrer l'hyperviseur, et prouver qu'il est revenu
+
+**Taille** M · **Type** ⚙ · **Statut** ✅ livré — 2026-08-03
+
+**Le trou constaté** — pvecli savait redémarrer un invité, pas la machine qui
+les porte. Redémarrer le nœud après un `apt dist-upgrade` obligeait donc à
+sortir vers le shell — la même classe de dette que PVX-077.
+
+**Livré** : `pvecli node reboot [node]`, `--wait` (10 min par défaut) et
+`--no-wait`. `RebootNode` dans `internal/pve/nodes.go`, la commande et sa sonde
+dans `cmd/node.go`, 1 endpoint en plus dans `endpoints.go` et `docs/API-MAP.md`.
+
+**Le piège central : ce qui compte comme preuve.** L'endpoint **ne rend aucun
+UPID** — un nœud ne peut pas rapporter sur une tâche dont l'objet est qu'il
+cesse de répondre. Le HTTP 200 est une *acceptation*, pas un succès, donc le
+post-read du pipeline de mutation doit venir de l'extérieur. Et la version
+évidente de ce post-read est **fausse** : le nœud continue de répondre pendant
+plusieurs secondes après avoir accepté la commande, le temps que systemd
+descende ses units. Une sonde qui s'arrête au premier GET réussi annonce donc
+« revenu » d'une machine qui n'est même pas encore tombée — la réponse la plus
+trompeuse que cette commande puisse donner.
+
+D'où la preuve retenue : **un uptime qui REDESCEND**. L'uptime croît de façon
+monotone et ne peut chuter qu'à travers un boot ; une valeur plus basse est la
+seule observation qu'un nœud n'ayant pas redémarré est incapable de produire.
+
+**Testabilité assumée dans la signature** — `nodeReturnProbe` prend une
+*fonction* de statut et son intervalle, pas un client et une constante, pour
+que cette garantie puisse être **contredite par un test**. Avec un client et un
+`sleep` en dur, `wait` ne serait exerçable que contre un vrai nœud en train de
+redémarrer, c'est-à-dire jamais. Deux tests l'épinglent : un nœud qui répond
+avec un uptime *croissant* doit expirer plutôt que réussir, et une coupure au
+milieu ne doit pas interrompre l'attente. Les deux ont été vérifiés par mutation
+(`st.Uptime < before` affaibli en `err == nil`) et vus échouer.
+
+**Rayon de souffle** — le plus large de la CLI, d'où `Destructive` (retaper le
+nom du nœud) et deux tests qui épinglent le plan lui-même : il doit nommer que
+**tous** les invités sont arrêtés, et que c'est `onboot=1` qui décide lesquels
+repartent. Le champ `Rollback` dit qu'il n'y en a pas, plutôt que d'offrir une
+commande inverse qui n'existe pas.
+
+**Privilège** : `Sys.PowerMgmt` sur `/nodes/{node}`, **pas** `Sys.Modify` — un
+token qui peut réécrire les dépôts APT du nœud ne peut pas pour autant le
+power-cycler. Aucun rôle intégré ne le porte hors `Administrator` : il faut un
+rôle sur mesure, donc PVX-077.
+
+**Dette relevée en passant, non corrigée** — `TestAPIMapCoverage` apparie sur le
+*motif* d'endpoint seul, donc un motif déjà documenté pour une méthode couvre en
+silence toutes les autres. **8 endpoints** passent aujourd'hui par ce trou, 7
+antérieurs à ce commit. Celui-ci est documenté avec sa méthode ; resserrer le
+test et combler les 7 autres est un commit à part — **c'est du RAF**.
+
+---
+
+### PVX-082 — `caddy` au catalogue : le reverse proxy partagé cesse d'être posé à la main
 
 **Taille** S · **Type** ⚙ · **Statut** ✅ livré — 2026-08-02
 
@@ -153,7 +328,7 @@ Caddy est un cas où la configuration complète a déjà été validée sur le
 candidat. Un fragment cassé ne peut donc ni être rechargé, ni faire tomber au
 restart un proxy qui tournait. Après retrait du fragment, l'hôte reconverge
 (`changed=3`) puis retombe à `changed=0`.
-### PVX-079 — DÉFINITIONS de stockage (`/storage`)
+### PVX-083 — DÉFINITIONS de stockage (`/storage`)
 
 **Taille** M · **Type** ⚙ · **Statut** ✅ livré — 2026-08-02
 
@@ -294,7 +469,7 @@ ambiguë.
 
 ### PVX-076 — Jobs de sauvegarde PLANIFIÉS (`/cluster/backup`)
 
-**Taille** M · **Type** ⚙ · **Statut** ✅ livré — 2026-08-02
+**Taille** M · **Type** ⚙ · **Lot** M13 · **Statut** ✅ livré — 2026-08-02
 
 En tant qu'opérateur, je veux gérer les sauvegardes **récurrentes** depuis
 pvecli, parce que `backup run` (PVX-037) ne prouve qu'une chose : qu'on était là
@@ -357,12 +532,18 @@ trois clés coexistent dans le fichier de jobs, mais `PVE::API2::Backup::update_
 efface les deux autres côté nœud avant validation. Il suffit donc d'envoyer
 celle qu'on veut. *(Vérifié dans le source du nœud, pas contre un nœud vivant.)*
 
-**Non vérifié en live** — le secret du token n'était pas disponible sur le poste
-au moment du développement, et le nœud n'était pas joignable en SSH. Validé par
-build, `go vet`, `go test ./...`, seuil de couverture, et l'aide des nouvelles
-commandes. Les fixtures `testdata/backup-job{,s}.json` sont **dérivées du
-schéma**, pas capturées : à remplacer par une vraie capture (`make capture
-ENDPOINT=/cluster/backup`) dès que le token est rétabli.
+**Ce qui est vérifié en live, et ce qui ne l'est pas** — le secret du token,
+introuvable au moment du développement, a été rétabli le 02-08 (PVX-080). Depuis :
+`backup job ls` répond contre le nœud réel et **ne liste aucun job planifié** —
+c'est le constat qui a motivé la story, désormais mesuré et non plus supposé.
+Les **écritures** (`create`, `set`, `rm`), elles, ne sont toujours pas exercées :
+elles exigent `Sys.Modify` sur `/`, que le token n'a pas, et renvoient
+`403 Permission check failed (/, Sys.Modify)`. Cf. PVX-077.
+
+Les fixtures `testdata/backup-job{,s}.json` restent **dérivées du schéma**, pas
+capturées : à remplacer par une vraie capture (`make capture
+ENDPOINT=/cluster/backup`) — ce qui exige au moins un job existant, donc
+PVX-077 d'abord.
 
 **Ce que ça doit t'apprendre** — Qu'un défaut d'API peut être un piège de
 production. `keep-all=1` est un défaut « sûr » du point de vue de PVE (il ne
@@ -373,12 +554,17 @@ supprime *jamais* rien). Un bon défaut dépend de ce qu'on protège.
 
 ### PVX-077 — rôles sur mesure : accorder un privilège sans tout donner
 
-**Taille** S · **Type** ⚙ · **Statut** ✅ livré — 2026-08-02
+**Taille** S · **Type** ⚙ · **Lot** M13 · **Statut** ✅ livré — 2026-08-02
 
-Découvert en documentant PVX-076. Les écritures sur `/cluster/backup` exigent
-**`Sys.Modify`**. Or une ACL accorde un **rôle**, pas un privilège — et dans les
-rôles intégrés du nœud (`testdata/roles-with-custom.json`, capture réelle), **le
-seul qui porte `Sys.Modify` est `Administrator`**. Le donner sur `/`, c'est
+Découvert en documentant PVX-076, puis **confirmé contre le nœud le 02-08** :
+`fw ipset create`, l'activation du firewall datacenter et la création d'un job
+de sauvegarde renvoient toutes trois
+`403 Permission check failed (/, Sys.Modify)`.
+
+Les écritures sur `/cluster/backup` exigent **`Sys.Modify` sur `/`**. Or une ACL
+accorde un **rôle**, pas un privilège — et dans les rôles intégrés du nœud
+(`testdata/roles-with-custom.json`, capture réelle), **le seul qui porte
+`Sys.Modify` est `Administrator`**. Le donner sur `/`, c'est
 `root@pam` sous un autre nom, ce que `access acl set` refuse à juste titre sans
 `--i-know-what-im-doing`. La sortie propre est un **rôle sur mesure**, et elle
 passait par des endpoints que pvecli n'exposait pas : `access role` était en
@@ -387,6 +573,43 @@ lecture seule (`ls|show`).
 **Livré** : écritures dans `internal/pve/access.go` + `cmd/access.go`.
 - `pvecli access role add|set|rm` (`create`, `update`, `delete` en alias).
 - 3 endpoints ajoutés à `endpoints.go` et à `docs/API-MAP.md`.
+
+**Mesuré contre le nœud le 03-08, et c'est pire que ce qui était écrit.** La
+commande livrée ici pour franchir le mur **bute sur le même mur** :
+
+```
+$ pvecli access role add ops-backup-job --privs Sys.Audit,Sys.Modify,…
+Error: POST /access/roles : HTTP 403 — Permission check failed (/access, Sys.Modify)
+```
+
+Créer le rôle de moindre privilège exige donc soi-même `Sys.Modify` sur
+`/access`, que seul `Administrator` porte. Et l'amorçage prévu ne suffit pas
+non plus : **`PVEAdmin` ne porte pas `Sys.Modify`** — ses seuls privilèges
+`Sys.*` sont `Sys.Audit`, `Sys.Console`, `Sys.Syslog` — alors que `pvecli login`
+l'attache par défaut. Le franchissement exige donc `pvecli login --role
+Administrator`, ou un mot de passe `root@pam`, à chaque fois.
+
+Relevé au passage : un rôle sur mesure `node-sysmodify` (`Sys.Audit`,
+`Sys.Modify`) **existe déjà** sur le nœud, mais posé sur `/nodes/pve`. Les jobs
+de sauvegarde exigent `Sys.Modify` sur `/` : une ACL au bon rôle et au mauvais
+chemin n'accorde rien, et rien ne le signale.
+
+**Ce qui reste à faire pour clore M13** — une seule séquence, qui exige une
+identité `Administrator` que l'outil ne fabrique pas :
+
+```sh
+pvecli login --user root@pam --role Administrator --token-name pvectl-adm
+pvecli access role add ops-backup-job \
+    --privs Sys.Audit,Sys.Modify,VM.Backup,Datastore.Audit,Datastore.AllocateSpace
+pvecli access acl set --path / --role ops-backup-job --token automation@pve!pvectl-cc
+pvecli backup job create --all --storage local --schedule '02:30' --keep-last 3
+```
+
+**Ce que ça doit t'apprendre** — un privilège ne se délègue pas en une étape :
+accorder `Sys.Modify` exige `Sys.Modify` sur `/access`. La chaîne d'amorçage ne
+se termine jamais dans l'outil, elle se termine sur une identité qu'il n'a pas
+fabriquée. Une CLI d'automatisation peut retirer le SSH de l'exploitation
+quotidienne ; elle ne peut pas le retirer de sa propre racine de confiance.
 
 **Nommage** — `add` plutôt que `create` comme nom principal, parce que PVE dit
 lui-même `pveum role add` ; `create` reste accepté en alias pour rester
@@ -478,7 +701,7 @@ rôles condamne son utilisateur à `Administrator`.
 
 ### PVX-075 — Firewall PVE d'un conteneur
 
-**Taille** M · **Type** ⚙ · **Statut** ✅ livré (guest + IPSet) — 2026-08-01
+**Taille** M · **Type** ⚙ · **Lot** M13 · **Statut** ✅ livré (guest + IPSet) — 2026-08-01
 
 En tant qu'opérateur, je veux piloter le firewall PVE d'un conteneur depuis
 pvecli — la best practice Proxmox (filtrage à l'hyperviseur, par-guest, via
@@ -511,7 +734,7 @@ firewall PVE — bloqué tant que le firewall datacenter n'est pas activé (déc
 
 ### PVX-074 — `lxc exec` : lancer une commande DANS un conteneur
 
-**Taille** L · **Type** ⚙ · **Dépend de** PVX-041 (`vm agent exec`) · **Statut** ✅ livré (voie 1, console termproxy) — 2026-08-01
+**Taille** L · **Type** ⚙ · **Lot** M13 · **Dépend de** PVX-078 (`vm agent exec`) · **Statut** ✅ livré (voie 1, console termproxy) — 2026-08-01
 
 > **Résolu.** Implémenté via la voie 1 (termproxy + vncwebsocket), dans
 > `internal/pve/lxc_exec.go` + `cmd/lxc_exec.go`. Trois réalités que seul le nœud
@@ -591,3 +814,104 @@ l'hyperviseur s'arrête : une VM est une boîte noire dotée d'un agent qui parl
 l'API ; un conteneur partage le noyau de l'hôte, et son « exec » vit côté hôte,
 pas côté API. Vouloir la même commande des deux côtés, c'est se heurter à cette
 asymétrie — et la bonne réponse est souvent de la nommer, pas de la masquer.
+
+---
+
+### PVX-078 — `vm agent exec` : une commande dans une VM, sans SSH
+
+**Taille** M · **Type** ⚙ · **Lot** M12 · **Statut** ✅ livré — 2026-08-01
+
+`POST .../qemu/{vmid}/agent/exec` puis `.../agent/exec-status` jusqu'à `exited`.
+Deux détails que le schéma seul ne donne pas : `command` est **répété une fois
+par argument** — une chaîne unique serait lue comme un exécutable dont le nom
+contient des espaces, et il n'y a **pas de shell** derrière ; et les champs de
+retour sont en **tirets** (`out-data`, `err-data`, `out-truncated`).
+
+**Correctif payé en live** — PVE 9.2 sérialise `out-truncated` / `err-truncated`
+en **nombre** là où le schéma annonce un booléen : tout `vm agent exec` plantait
+au décodage, sur un champ dont personne ne lit jamais la valeur. Type tolérant
+`flexBool`. Second correctif : le `pid` était perdu quand le délai expirait
+pendant la requête de scrutation — on ne pouvait plus aller lire le résultat
+d'une commande qui, elle, avait bien tourné.
+
+---
+
+### PVX-079 — `pvecli login` : fabriquer le premier token sans SSH
+
+**Taille** M · **Type** ⚙ · **Lot** M12 · **Statut** ✅ livré — 2026-08-01
+
+Le lot répare une circularité : toutes les commandes s'authentifient par token,
+et aucune ne savait en créer un — il fallait un accès SSH au nœud pour lancer
+`pveum`, exactement l'accès que cette CLI existe pour rendre inutile.
+
+`POST /access/ticket` échange un mot de passe (saisi sans écho, ou `PVE_PASSWORD`)
+contre un ticket ; avec lui, `login` crée l'utilisateur s'il manque, crée le
+token, lit son secret — **PVE ne le montre qu'une fois** — attache le rôle sur
+son chemin en propagation, et écrit le `token_id` dans la configuration. Le
+secret n'est jamais écrit sur le disque : il est imprimé une fois.
+
+**Le ticket ramène le CSRF, que le token avait le droit d'ignorer.** PVX-003
+avait établi *pourquoi* un token en est dispensé (il n'est jamais attaché
+automatiquement à une requête, donc rien à protéger) ; `login` est le seul
+chemin du client qui repasse par un ticket, donc le seul qui doive poser
+`CSRFPreventionToken` — et seulement sur les méthodes autres que `GET`.
+
+**Rejouable, sauf sur un point** : utilisateur et ACL sont réappliqués sans
+bruit, un token existant est laissé en place — et ne peut pas rendre son secret
+une seconde fois. Pour repartir de zéro, il faut le détruire.
+
+Preuve : `automation@pve!pvectl-cc` fabriqué par cette commande le 2026-08-01.
+
+---
+
+### PVX-080 — Les trois sources du secret, et `auth status`
+
+**Taille** M · **Type** ⚙ · **Lot** M12 · **Statut** ✅ livré — 2026-08-02
+
+Le secret n'avait qu'une source : l'environnement. Donc une variable à
+réexporter dans chaque shell, et rien à quoi se raccrocher quand elle manque.
+
+Trois sources désormais, la première qui répond gagne :
+
+1. `PVE_API_TOKEN_SECRET` ;
+2. une commande dont la **sortie standard EST** le secret — `secret_command`
+   dans le contexte (`pass show pve/token`, `cat …`) ;
+3. le trousseau du système — libsecret sous Linux, Keychain sous macOS, alimenté
+   par `pvecli auth set-secret` (saisie masquée ou `--stdin`).
+
+`secret_source` restreint la recherche à une seule d'entre elles, pour qu'une
+erreur se **voie** au lieu d'être rattrapée en silence par une source moins
+fraîche. Le secret n'est toujours jamais acceptable en argument (`ps`,
+historique du shell) ni dans le fichier de configuration — décision D1, imposée
+par le code depuis PVX-002.
+
+**L'incident qui a produit la story.** Le secret de `pvectl-cc` a été déclaré
+introuvable sur le poste Linux et cherché comme une perte. Il était sur le
+disque depuis sa création, dans `~/.config/pvecli/secret` : aucune des trois
+sources n'y pointait. Câblé en une ligne
+(`pvecli config set secret_command "cat …/secret"`), `doctor` repasse au vert
+sans qu'aucune variable d'environnement ne soit exportée.
+
+D'où la formulation de `auth status`, qui est la vraie livraison : **il répond
+« ABSENT » quand le secret n'est pas *atteignable*, jamais quand il n'existe
+pas** — il ne peut pas connaître la seconde question. Même famille que
+« aucune ACL **VISIBLE** » (PVX-032).
+
+---
+
+### PVX-081 — Le poste tient `pvecli` à jour tout seul
+
+**Taille** S · **Type** ⚙ · **Lot** M12 · **Statut** ✅ livré — 2026-08-01
+
+`scripts/autoupdate/` : un `.timer` systemd `OnCalendar=daily` +
+`Persistent=true` — sans quoi un déclenchement tombé pendant que le poste est
+éteint est simplement sauté et la mise à jour n'arrive jamais — et
+`RandomizedDelaySec=1h`, parce qu'une machine qui frappe GitHub à heure fixe est
+une machine de plus dans la pointe. Une fois par jour suffit : `pvecli` n'est pas
+un service exposé, et le quota anonyme de l'API GitHub est de 60 appels/h par IP.
+
+**Le garde-fou qui compte** — un binaire issu d'un `make install` porte la
+version `dev` et contient presque toujours **plus** que la dernière release. Le
+remplacer la nuit ferait disparaître le correctif en cours de test, et la panne
+du lendemain se chercherait partout sauf là. `install.sh` refuse donc d'écraser
+un binaire `dev` et dit comment repasser volontairement sur la release publiée.

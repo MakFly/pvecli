@@ -10,7 +10,7 @@ de PVE **9.x** (le lab tourne en 9.2.2, pas en 8.x) ou via
 | `/version` | GET | `pvecli version` | PVX-005 | 2026-07-31 | `pvesh get /version` sur le nœud (PVE 9.2.2) |
 | `/nodes` | GET | `pvecli node ls` | PVX-006 | 2026-07-31 | `pvesh get /nodes` sur le nœud |
 | `/nodes/{node}/status` | GET | `pvecli node show` | PVX-006 | 2026-07-31 | `pvesh get /nodes/pve/status` sur le nœud |
-| `/nodes/{node}/status` | POST | `pvecli node reboot` | PVX-079 | 2026-08-03 | schéma de l'API : `command` ∈ {reboot, shutdown}, privilège `Sys.PowerMgmt` sur `/nodes/{node}` |
+| `/nodes/{node}/status` | POST | `pvecli node reboot` | PVX-084 | 2026-08-03 | schéma de l'API : `command` ∈ {reboot, shutdown}, privilège `Sys.PowerMgmt` sur `/nodes/{node}` |
 | `/cluster/status` | GET | `pvecli doctor` | PVX-008 | 2026-07-31 | `pvesh get /cluster/status` sur le nœud |
 | `/access/permissions` | GET | `pvecli doctor` | PVX-008 | 2026-07-31 | appel réel avec le token `automation@pve!pvectl` |
 | `/cluster/resources` | GET | `pvecli cluster resources`, `iac inventory\|drift\|adopt` | PVX-016 · 042 · 044 | 2026-07-31 | `pvesh usage /cluster/resources` sur le nœud |
@@ -24,7 +24,7 @@ de PVE **9.x** (le lab tourne en 9.2.2, pas en 8.x) ou via
 | `/access/roles/{roleid}` | DELETE | `pvecli access role rm` | PVX-077 | 2026-08-02 | `search-pve-api.ts "/access/roles"` + source `Role.pm` (`delete_role`) — les ACL qui posaient le rôle n'accordent plus rien. Refusé sur un rôle `special` (`auto-generated role cannot be deleted`). Privilège : **`Sys.Modify` sur `/access`** |
 | `/access/acl` | GET | `pvecli access acl ls` | PVX-033 | 2026-07-31 | `pvesh get /access/acl` sur le nœud |
 | `/access/acl` | PUT | `pvecli access acl set` | PVX-035 | 2026-07-31 | `pvesh usage /access/acl -v` sur le nœud |
-| `/access/ticket` | POST | `pvecli login` | PVX-072 | 2026-08-01 | le SEUL endpoint appelé sans identifiant — c'est lui qui en produit. Rend `ticket` (cookie `PVEAuthCookie`) et `CSRFPreventionToken`, exigé sur les écritures ; durée 2 h |
+| `/access/ticket` | POST | `pvecli login` | PVX-079 | 2026-08-01 | le SEUL endpoint appelé sans identifiant — c'est lui qui en produit. Rend `ticket` (cookie `PVEAuthCookie`) et `CSRFPreventionToken`, exigé sur les écritures ; durée 2 h |
 | `/access/users/{userid}/token` | GET | `pvecli access token ls` | PVX-033 | 2026-07-31 | `pvesh get /access/users/automation@pve/token` |
 | `/access/users/{userid}/token/{tokenid}` | GET | post-read de `token create\|rm` | PVX-034 | 2026-07-31 | `pvesh usage /access/users/automation@pve/token/pvecli -v` |
 | `/access/users/{userid}/token/{tokenid}` | POST | `pvecli access token create` | PVX-034 | 2026-07-31 | `pvesh usage` sur le nœud + `PVE::API2::User::generate_token` |
@@ -46,8 +46,8 @@ de PVE **9.x** (le lab tourne en 9.2.2, pas en 8.x) ou via
 | `/nodes/{node}/qemu/{vmid}/migrate` | POST | `pvecli vm migrate` | PVX-052 | 2026-07-31 | `pvesh usage … -v` (`online`, `with-local-disks`, `targetstorage`, `bwlimit`) |
 | `/nodes/{node}/lxc/{vmid}/migrate` | GET · POST | `pvecli lxc migrate` | PVX-052 | 2026-07-31 | `pvesh usage /nodes/pve/lxc/120/migrate` + réponse réelle (champs en **tirets**, pas en underscores) |
 | `/nodes/{node}/qemu/{vmid}/agent/network-get-interfaces` | GET | `pvecli vm agent ifaces`, `vm ip`, `iac inventory` | PVX-029 · 042 | 2026-07-31 | `pvesh usage` sur le nœud |
-| `/nodes/{node}/qemu/{vmid}/agent/exec` | POST | `pvecli vm agent exec` | PVX-071 | 2026-08-01 | `command` est répété une fois par argument — une seule chaîne serait lue comme un exécutable dont le nom contient des espaces ; il n'y a **pas** de shell derrière |
-| `/nodes/{node}/qemu/{vmid}/agent/exec-status` | GET | `pvecli vm agent exec` (attente) | PVX-071 | 2026-08-01 | rend `exited`, `exitcode`, `out-data`, `err-data` (champs en **tirets**) ; interrogé avec le `pid` rendu par `agent/exec` |
+| `/nodes/{node}/qemu/{vmid}/agent/exec` | POST | `pvecli vm agent exec` | PVX-078 | 2026-08-01 | `command` est répété une fois par argument — une seule chaîne serait lue comme un exécutable dont le nom contient des espaces ; il n'y a **pas** de shell derrière |
+| `/nodes/{node}/qemu/{vmid}/agent/exec-status` | GET | `pvecli vm agent exec` (attente) | PVX-078 | 2026-08-01 | rend `exited`, `exitcode`, `out-data`, `err-data` (champs en **tirets**) ; interrogé avec le `pid` rendu par `agent/exec` |
 | `/nodes/{node}/lxc/{vmid}/snapshot` | GET · POST | `pvecli lxc snapshot ls\|create` | PVX-028 | 2026-07-31 | `PVE::API2::LXC::Snapshot`, lignes 24-109 du source du nœud |
 | `/nodes/{node}/lxc/{vmid}/snapshot/{name}/rollback` | POST | `pvecli lxc snapshot rollback` | PVX-028 | 2026-07-31 | `PVE::API2::LXC::Snapshot`, ligne 269 |
 | `/nodes/{node}/lxc/{vmid}/snapshot/{name}` | DELETE | `pvecli lxc snapshot rm` | PVX-028 | 2026-07-31 | `PVE::API2::LXC::Snapshot`, ligne 169 |
@@ -74,11 +74,11 @@ de PVE **9.x** (le lab tourne en 9.2.2, pas en 8.x) ou via
 | `/nodes/{node}/storage/{storage}/download-url` | POST | `pvecli storage download-url` | PVX-051 | 2026-07-31 | `pvesh usage /nodes/pve/storage/local/download-url -v` |
 | `/nodes/{node}/storage/{storage}/upload` | POST | `pvecli storage upload` | PVX-051 | 2026-07-31 | `pvesh usage … -v` + `PVE::APIServer::AnyEvent::file_upload_multipart` (ordre des parties du multipart) |
 | `/nodes/{node}/storage/{storage}/content/{volume}` | DELETE | `pvecli storage rm` | PVX-051 | 2026-07-31 | `PVE::API2::Storage::Content::delete` ligne 453 (`Datastore.Allocate`) |
-| `/storage` | GET | `pvecli storage def ls` | PVX-078 | 2026-08-02 | `search-pve-api.ts "/storage"` + capture réelle du nœud (`testdata/storage-defs.json`) — endpoint de **cluster**, pas de nœud : la définition vit dans `/etc/pve/storage.cfg`, répliquée. Liste **filtrée** : `Datastore.Audit` ou `Datastore.AllocateSpace` sur `/storage/<id>` |
-| `/storage/{storage}` | GET | `pvecli storage def show`, pre-read et post-read de `add\|set\|rm` | PVX-078 | 2026-08-02 | `search-pve-api.ts "/storage"` + capture réelle (`testdata/storage-def.json`) — un identifiant inconnu répond **500**, pas 404. `Datastore.Allocate` sur `/storage/{storage}` |
-| `/storage` | POST | `pvecli storage def add` | PVX-078 | 2026-08-02 | `search-pve-api.ts "/storage"` — rend `{storage, type, config}`. Privilège : **`Datastore.Allocate` sur `/storage`**, pas `Sys.Modify` — `PVEDatastoreAdmin` le porte déjà |
-| `/storage/{storage}` | PUT | `pvecli storage def set` | PVX-078 | 2026-08-02 | `search-pve-api.ts "/storage"` — PUT **partiel**, mais `export`/`share`/`datastore`/`path`/`type` en sont **absents**. `digest` couvre tout `storage.cfg`. **`Datastore.Allocate` sur `/storage`** |
-| `/storage/{storage}` | DELETE | `pvecli storage def rm` | PVX-078 | 2026-08-02 | `search-pve-api.ts "/storage"` — supprime l'**entrée de configuration**, pas les données du partage. Rend `null`. **`Datastore.Allocate` sur `/storage`** |
+| `/storage` | GET | `pvecli storage def ls` | PVX-083 | 2026-08-02 | `search-pve-api.ts "/storage"` + capture réelle du nœud (`testdata/storage-defs.json`) — endpoint de **cluster**, pas de nœud : la définition vit dans `/etc/pve/storage.cfg`, répliquée. Liste **filtrée** : `Datastore.Audit` ou `Datastore.AllocateSpace` sur `/storage/<id>` |
+| `/storage/{storage}` | GET | `pvecli storage def show`, pre-read et post-read de `add\|set\|rm` | PVX-083 | 2026-08-02 | `search-pve-api.ts "/storage"` + capture réelle (`testdata/storage-def.json`) — un identifiant inconnu répond **500**, pas 404. `Datastore.Allocate` sur `/storage/{storage}` |
+| `/storage` | POST | `pvecli storage def add` | PVX-083 | 2026-08-02 | `search-pve-api.ts "/storage"` — rend `{storage, type, config}`. Privilège : **`Datastore.Allocate` sur `/storage`**, pas `Sys.Modify` — `PVEDatastoreAdmin` le porte déjà |
+| `/storage/{storage}` | PUT | `pvecli storage def set` | PVX-083 | 2026-08-02 | `search-pve-api.ts "/storage"` — PUT **partiel**, mais `export`/`share`/`datastore`/`path`/`type` en sont **absents**. `digest` couvre tout `storage.cfg`. **`Datastore.Allocate` sur `/storage`** |
+| `/storage/{storage}` | DELETE | `pvecli storage def rm` | PVX-083 | 2026-08-02 | `search-pve-api.ts "/storage"` — supprime l'**entrée de configuration**, pas les données du partage. Rend `null`. **`Datastore.Allocate` sur `/storage`** |
 | `/nodes/{node}/network` | GET | `pvecli net ls` | PVX-049 | 2026-07-31 | `pvesh usage /nodes/pve/network -v` + `PVE::API2::Network` ligne 418 (`set_result_attrib('changes')`) |
 | `/nodes/{node}/network/{iface}` | GET | `pvecli net show` | PVX-049 | 2026-07-31 | `pvesh usage /nodes/pve/network/vmbr0` |
 | `/nodes/{node}/network` | PUT | `pvecli net apply` | PVX-049 | 2026-07-31 | `PVE::API2::Network::reload_network_config` (ligne 885 : `Sys.Modify`, ligne 903 : renvoie un UPID) |

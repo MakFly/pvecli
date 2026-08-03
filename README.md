@@ -10,7 +10,8 @@ It is **not** a clone of `pvesh`. `pvesh` only exists *on* the node, behind SSH.
 does not offer: `--dry-run` everywhere, JSON output, real task polling, generated
 Ansible inventories.
 
-> **Status: M0 through M10 are closed.** `pvecli` reads a
+> **Status: M0 → M10 and M12 are closed. M11 and M13 are open on a proof, not
+> on code.** `pvecli` reads a
 > node's whole inventory, creates, configures, clones, snapshots, starts and
 > destroys both virtual machines and LXC containers, explains a `403` instead of
 > suggesting you escalate, has been used to destroy a running VM and bring its
@@ -24,7 +25,15 @@ Ansible inventories.
 > Since M9 it also **declares** a VM and the services that go in it — one
 > command, no HCL to write — and ends the run by saying how to get in. Since M10
 > it drives Cloudflare Tunnel, so a service reaches the web without a single
-> port opened on the router.
+> port opened on the router. Since M12 it mints its **own** first token from a
+> password, so the bootstrap no longer needs SSH, and finds the token secret in
+> one of three sources instead of one. M13 reaches **inside** a guest without
+> SSH — the QEMU agent for a VM, the console for a container, which has no exec
+> endpoint at all — filters guests through the PVE firewall, manages scheduled
+> backup jobs, and mints the **custom role** those jobs need, so granting one
+> privilege no longer means handing over the whole node. Since then it also
+> declares storage backends, carries a `caddy` role in its catalogue, and
+> reboots the node itself — proving it came back by an uptime that *fell*.
 
 ```sh
 pvecli iac scaffold
@@ -229,30 +238,54 @@ gh attestation verify pvecli_v0.1.0_linux_amd64 --repo MakFly/pvecli
 ### First run
 
 You need an API token. `root@pam` works and is exactly what this tool is built
-to avoid — create a dedicated one instead (PRD Appendix A):
+to avoid — create a dedicated one instead. `pvecli login` does it for you: it
+trades a password for a ticket (`POST /access/ticket`, the same call the web UI
+makes), and uses that ticket to create the user, the token and its ACL.
 
 ```sh
-# On the node, once.
+pvecli config init --endpoint https://pve.example:8006 --node pve
+pvecli config trust     # pin the certificate — stronger than --insecure, costs one command
+pvecli login --user root@pam
+# → the token secret is printed ONCE. PVE does not store it in clear and will
+#   never show it again.
+```
+
+The password is only ever typed at the prompt, without echo (`PVE_PASSWORD` in a
+script). `login` is replayable: an existing user and ACL are reapplied quietly,
+an existing token is left alone — and cannot hand back its secret a second time.
+
+<details>
+<summary>Without a PVE password — the same thing by hand, on the node</summary>
+
+```sh
 pveum user add automation@pve
 pveum acl modify / --roles PVEAuditor --users automation@pve
 pveum user token add automation@pve pvecli --privsep 1
 # → note the secret. It is shown ONCE and never again.
 ```
 
+</details>
+
 The secret never goes in a file and never goes in a flag — `ps` and the shell
-history both read flags. On macOS:
+history both read flags, which is why there is no `--token-secret`. Three
+sources are tried, first one to answer wins. Pick **one** — these are
+alternatives, not steps:
 
 ```sh
-security add-generic-password -a pvecli -s pvecli-token -w '<le secret>'
-export PVE_API_TOKEN_SECRET="$(security find-generic-password -a pvecli -s pvecli-token -w)"
+export PVE_API_TOKEN_SECRET='<the secret>'          # 1. environment
+pvecli config set secret_command 'pass show pve/token'  # 2. a command whose stdout IS the secret
+pvecli auth set-secret                              # 3. the OS keyring, prompted without echo
+pvecli auth status                                  # which source answered, never the value
 ```
 
-Then, in order:
+`auth status` says **ABSENT** when the secret is not *reachable* — not when it
+does not exist. It cannot know the second question. If it says that while you
+are sure the secret is on disk somewhere, the missing piece is usually the
+wiring, not the secret: point source 2 at the file.
+
+Then:
 
 ```sh
-pvecli config init --endpoint https://pve.example:8006 \
-    --token-id 'automation@pve!pvectl' --node pve
-pvecli config trust     # pin the certificate — stronger than --insecure, costs one command
 pvecli doctor           # network → TLS → auth → node → privileges, in that order
 pvecli vm ls            # the first real answer
 ```
@@ -514,6 +547,25 @@ fails on every run, silently. These writes need `Datastore.Allocate` on
 `/storage`, not `Sys.Modify`: the built-in `PVEDatastoreAdmin` role already
 carries it.
 
+Rebooting the **node** — the widest blast radius in the CLI, so it asks you to
+retype the node's name:
+
+```sh
+pvecli node reboot pve            # stops ALL guests; only onboot=1 ones come back
+pvecli node reboot pve --wait 15m # how long the node gets to return (default 10m)
+pvecli node reboot pve --no-wait  # returns immediately, and proves nothing
+```
+
+This is not `vm reboot`. The API returns **no UPID** here — a node cannot report
+on a task whose whole point is that it stops answering — so the HTTP 200 is an
+acceptance, not a success. The proof is taken from outside, and "the node
+answers again" is not it: the node keeps answering for several seconds after
+accepting the command, while systemd walks down its units. What `pvecli` waits
+for is an **uptime that falls**, since uptime rises monotonically and can only
+drop across a boot. Privilege is `Sys.PowerMgmt` on `/nodes/{node}`, not
+`Sys.Modify` — a token that can rewrite the node's APT sources still cannot
+power-cycle it.
+
 ## Configuration
 
 Layered, in decreasing priority: **flags → environment → config file →
@@ -529,15 +581,21 @@ contexts:
     node: pve
     tls:
       fingerprint: "9F:3D:1A:55:..."
+    secret_command: pass show pve/token   # optional — its stdout IS the secret
+    secret_source: command                # optional — pin the lookup to one source
 ```
 
 Environment variables — `PVE_API_URL`, `PVE_API_TOKEN_ID`,
 `PVE_API_TOKEN_SECRET`, `PVE_INSECURE` — are named to stay interoperable with
 the `pve-api` bash client from the reference lab.
 
-**`token_secret` is rejected inside the config file**, with an error pointing at
-the environment instead — at the line to delete, and wherever in the document it
-was hiding. A config file is something you eventually commit.
+**`token_secret` is rejected inside the config file**, with an error naming the
+line to delete and pointing at the three sources instead. A config file is
+something you eventually commit. `secret_command` is the way to keep a secret
+that lives in a file usable without exporting anything: what is written down is
+the *command*, never the value. `secret_source` pins the lookup to a single
+source, so a mistake shows up as an error instead of being silently caught by a
+staler source.
 
 `pvecli config show` prints the *effective* configuration together with the
 layer each value won on, so the precedence is observable rather than assumed:
@@ -615,14 +673,18 @@ Exit codes: `0` success · `1` generic · `2` usage · `3` auth/authz ·
 | **M5** Backup & DR | vzdump, restore, timed disaster-recovery drill | A destroyed VM restored, RPO/RTO measured | ✅ 4/4 — VM 212 backed up, destroyed, restored, service answering again. **RPO 19 s, RTO 20 s**, both measured, and what the archive did not hold written down |
 | **M6** IaC | Dynamic inventory, drift detection, Terraform/Ansible wrappers | `iac drift` catches a change made outside Terraform | ✅ 8/8 — Terraform created VM 210 in 23 s, `iac inventory` found its address through the guest agent, Ansible deployed **native Nginx on :80 and containerised Caddy on :8080**, both idempotent on the second pass and both verified on their **body**, not their status code. An out-of-band `memory=3072` was caught by `iac drift` and resorbed by `iac apply` |
 | **M7** Polish | Network, pools, migration, completion, CI, release | Binary installed and usable from the node | ✅ 7/7 — `net ls` shows pending changes read from **outside** `data`; pools created and emptied; a 64 MiB ISO fetched **by the node** with its checksum enforced, and a local file pushed by multipart; `migrate` explains what a single node cannot do; dynamic completion at `Tab`; CI failing under 70 % coverage; **and the binary answering `doctor` from the node itself, over `https://localhost:8006`** |
-
 | **M8** Rename | `pvectl` → `pvecli`, everywhere the code names itself | Suite green at every step; the PVE token `automation@pve!pvectl` deliberately **not** renamed — it is an identity on the node, with ACLs attached, not a name this tool gets to choose | ✅ — `doctor` still returns four ✓ against the live node |
 | **M9** Service catalogue | `vm declare`, embedded catalogue, Ansible roles, connection block | A VM declared in one command, built, resized and verified without writing a line of HCL | ✅ — VM 220 built in **18 s**, docker 29.7.1 + PostgreSQL 17.10 installed, second Ansible pass at `changed=0`, then grown to **16 GiB / 25 GiB** by re-declaring and re-applying, verified from the API *and* from inside the guest. Two collisions found only by running it against the real lab repo: a `site.yml` and a `requirements.yml` it would have overwritten |
-| **M10** Cloudflare | Tunnels, ingress table, DNS, `cloudflared` role | A service reachable from the web with no port opened | 🟡 code and tests done — the live proof waits on a Cloudflare API token |
+| **M10** Cloudflare | Tunnels, ingress table, DNS, `cloudflared` role | A service reachable from the web with no port opened | ✅ — *remotely-managed* tunnels, so the ingress table lives in the API rather than in a `config.yml` inside the guest; proxied CNAME; `cloudflared` Ansible role. The model is **outbound**: nothing listens, no port is opened on the box |
+| **M11** Delegated access | `access user create`, `vm create --pool`, `cf access` apps/policies/service tokens, `--no-tls-verify` | Someone else creates, resizes and destroys **their** VMs, from the internet, without seeing the rest of the lab | 🟡 code and tests done — the live proof waits on the sequence being played against the lab: `access user create` → `pool create` → three ACLs → `cf access app/policy/token` → `cf route add`. Measured on 08-03: the ACL step returns `403 (/access/acl, Permissions.Modify)` for the `pvectl` token, so this sequence needs an `Administrator` identity too |
+| **M12** Bootstrap & secret | `pvecli login`, three secret sources, `auth set-secret\|status`, auto-update timer | The first token minted without SSHing to the node, and its secret reachable without exporting anything | ✅ — `automation@pve!pvectl-cc` minted by `pvecli login` on 2026-08-01; on 08-02 its secret was reached through `secret_command` on the Linux box with no environment variable exported, and `doctor` went green again |
+| **M13** Operations | `vm agent exec`, `lxc exec`, `lxc firewall`, `fw ipset`, `backup job`, `access role add` | The guests operated from the API alone — no SSH, no `pct`, and the backup that will exist on the day of the outage is the *scheduled* one | 🟡 code complete — `lxc exec` and `lxc firewall` verified live against LXC 221 (`policy_in DROP`, 5432/7700 allowed from one address); `backup job ls` answers against the node and shows **no scheduled job at all**, which is the finding that motivated the lot. Job **writes** need `Sys.Modify` on `/`, which only `Administrator` carries among the built-in roles — `access role add` (PVX-077) shipped on 08-02 to mint the custom role that grants it *without* handing over the node — but on 08-03 that command **hit the same wall**: creating a least-privilege role itself needs `Sys.Modify` on `/access`, and `PVEAdmin`, which `pvecli login` attaches by default, does not carry it. Closing M13 needs an `Administrator` identity the tool does not mint |
+| **—** Since M13 | `caddy` in the catalogue, `storage def`, `node reboot`, API-MAP coverage by (method, path) | — | ✅ — PVX-082 → 085, delivered 08-02 → 08-03, not yet gathered into a lot |
 
-Full backlog: [`stories/`](stories/) — 55 stories, each with acceptance
-criteria, a proof command, and the thing it is supposed to teach.
-Product requirements: [`prd.md`](prd.md).
+Full backlog: [`stories/`](stories/) — M0 → M7 story by story, each with
+acceptance criteria, a proof command, and the thing it is supposed to teach;
+everything after M7 lives in [`stories/BACKLOG.md`](stories/BACKLOG.md).
+Product requirements: [`prd.md`](prd.md) — frozen at the v1 scope (M0 → M7).
 
 ## Stack
 
