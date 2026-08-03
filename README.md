@@ -150,6 +150,27 @@ is the byte that was published.
 
 ### Staying up to date
 
+The shortest path is the binary itself:
+
+```sh
+pvecli upgrade             # ou : pvecli --upgrade
+pvecli upgrade --dry-run   # dit ce qu'il téléchargerait et où, sans rien écrire
+pvecli upgrade --force     # depuis un build « dev », ou pour réinstaller à version égale
+```
+
+It applies the same rule as `install.sh`: the published `SHA256SUMS` is checked
+against the bytes received **before** anything touches the disk, and the
+replacement is a rename within the destination directory — an interrupted
+download leaves the working binary in place, never a half-written one.
+
+It refuses two things by default, both liftable with `--force`: overwriting a
+locally built (`dev`) binary, which almost always contains *more* than the
+latest release, and reinstalling a version already on disk.
+
+Three ways to keep a fleet current, from most to least automatic. The timer
+below installs silently; `pvecli upgrade` installs when *you* ask;
+`update check` only ever tells you.
+
 `PVECLI_ONLY_IF_NEWER=1` turns the installer into a cheap no-op when the binary
 on disk is already the published one — which is what makes it safe to run on a
 schedule. The schedule itself is two systemd user units:

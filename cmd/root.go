@@ -25,9 +25,23 @@ Authentification par token d'API, TLS vérifié, sortie table|json|yaml.
   pvecli --version    version de ce binaire
   pvecli version      version du nœud PVE interrogé`,
 
-		// No Run/RunE: with no argument Cobra prints the help and returns nil,
-		// which main turns into exit code 0.
+		// RunE exists only to serve --upgrade. Without it, Cobra prints the
+		// help by itself for a bare invocation; with it, printing the help is
+		// this function's job — hence the explicit Help() call, which keeps
+		// `pvecli` with no argument behaving exactly as before (exit 0, help
+		// on stdout — see TestNoArgsPrintsHelp).
 		Args: usage(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			upgrade, _ := cmd.Flags().GetBool("upgrade")
+			if !upgrade {
+				return cmd.Help()
+			}
+			dest, err := upgradeDestination()
+			if err != nil {
+				return err
+			}
+			return upgradeTo(cmd.Context(), cmd.OutOrStdout(), cmd.Root().Version, dest, false, false)
+		},
 
 		// Print usage only for usage errors, not for runtime failures — a
 		// failed API call should not dump the whole help.
@@ -37,6 +51,12 @@ Authentification par token d'API, TLS vérifié, sortie table|json|yaml.
 	// Declaring the flag before setting Version keeps Cobra from claiming the
 	// -v shorthand for it: -v / -vv belong to --verbose (PVX-009).
 	root.Flags().Bool("version", false, "version de ce binaire (pas celle du nœud PVE)")
+
+	// Local, not persistent, like --version: it describes the binary itself,
+	// and `pvecli vm list --upgrade` would mean nothing. It is a strict alias
+	// for the `upgrade` subcommand, with no flag of its own — someone who
+	// wants --dry-run or --force types the verb.
+	root.Flags().Bool("upgrade", false, "remplace ce binaire par la dernière release (voir « pvecli upgrade »)")
 	root.Version = version
 	root.SetVersionTemplate(fmt.Sprintf("pvecli %s (commit %s)\n", version, commit))
 
@@ -62,7 +82,7 @@ Authentification par token d'API, TLS vérifié, sortie table|json|yaml.
 		newVMCmd(), newLXCCmd(), newGuestCmd(), newStorageCmd(), newTaskCmd(), newClusterCmd(),
 		newAccessCmd(), newBackupCmd(), newDRCmd(), newIaCCmd(),
 		newNetCmd(), newPoolCmd(), newAICmd(), newCFCmd(),
-		newFwCmd(), newUpdateCmd(),
+		newFwCmd(), newUpdateCmd(), newUpgradeCmd(),
 	)
 
 	// Last, and on the built tree: the completers are attached by walking the

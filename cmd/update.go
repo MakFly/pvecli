@@ -186,7 +186,7 @@ func runUpdateCheck(cmd *cobra.Command, notify, refresh, force bool) error {
 		if err != nil || c.LatestTag == "" || c.LatestTag == installed {
 			return nil
 		}
-		_, _ = fmt.Fprintf(out, "%s → %s disponible : https://github.com/%s/releases/latest\n", installed, c.LatestTag, updateRepo)
+		_, _ = fmt.Fprint(out, updateAvailableLine(installed, c.LatestTag))
 		return nil
 	}
 
@@ -207,8 +207,18 @@ func runUpdateCheck(cmd *cobra.Command, notify, refresh, force bool) error {
 		return nil
 	}
 
-	_, _ = fmt.Fprintf(out, "%s → %s disponible : https://github.com/%s/releases/latest\n", installed, tag, updateRepo)
+	_, _ = fmt.Fprint(out, updateAvailableLine(installed, tag))
 	return nil
+}
+
+// updateAvailableLine is the one sentence both the human mode and --notify
+// print when a newer release exists. Shared, not duplicated: --notify is
+// what a shell prompt shows, and it is the only place most operators will
+// ever read that `pvecli upgrade` exists. The two wordings drifting apart is
+// how one of them ends up never mentioning it.
+func updateAvailableLine(installed, tag string) string {
+	return fmt.Sprintf("%s → %s disponible : « pvecli upgrade » (https://github.com/%s/releases/latest)\n",
+		installed, tag, updateRepo)
 }
 
 // readFreshUpdateCache reads the cache and rejects it if its TTL has
@@ -269,7 +279,17 @@ func resolveLatestTag(ctx context.Context, force bool) (tag string, fetchErr err
 
 // fetchLatestTag makes the single HTTP call this command is allowed to make.
 func fetchLatestTag(ctx context.Context) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, updateCheckTimeout)
+	return fetchLatestTagWithin(ctx, updateCheckTimeout)
+}
+
+// fetchLatestTagWithin is the same call under a caller-chosen budget.
+//
+// The timeout is a parameter and not a constant because the two callers are
+// waited on by different things: `check` runs behind a shell prompt and may
+// never cost more than updateCheckTimeout, while `upgrade` (cmd/upgrade.go)
+// has a human watching it and can afford to be patient on a poor link.
+func fetchLatestTagWithin(ctx context.Context, timeout time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	url := githubAPIBase + "/repos/" + updateRepo + "/releases/latest"
@@ -278,7 +298,7 @@ func fetchLatestTag(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	client := &http.Client{Timeout: updateCheckTimeout}
+	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
