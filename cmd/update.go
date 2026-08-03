@@ -13,11 +13,25 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// updateCheckTTL bounds how often a shell is willing to pay for a call to the
-// GitHub API. 24h, not 10s like the completion cache (PVX-053): this answers
-// a question the operator asks once a day at most, and GitHub's unauthenticated
-// rate limit does not forgive a CLI that asks it once per terminal.
-const updateCheckTTL = 24 * time.Hour
+// updateCheckSuccessTTL bounds how often a shell is willing to pay for a call
+// to the GitHub API after a SUCCESSFUL check. 24h, not 10s like the
+// completion cache (PVX-053): this answers a question the operator asks once
+// a day at most, and GitHub's unauthenticated rate limit does not forgive a
+// CLI that asks it once per terminal.
+const updateCheckSuccessTTL = 24 * time.Hour
+
+// updateCheckFailureTTL bounds how long a FAILED check is remembered.
+//
+// It is deliberately much shorter than updateCheckSuccessTTL. GitHub's
+// anonymous quota (60 req/h) is counted per IP, not per machine: behind a
+// shared NAT — an office, a VPN, a CI runner — it can be exhausted by
+// something this binary never did. If a failure were cached for 24h like a
+// success, one transient 403 would silence --notify for a full day even
+// after the quota resets, and nothing on the prompt would explain why. 1h is
+// long enough to still avoid hammering GitHub every terminal, short enough
+// that the feature heals itself once the underlying cause (offline, rate
+// limit, GitHub outage) is gone.
+const updateCheckFailureTTL = 1 * time.Hour
 
 // updateCheckTimeout caps the one HTTP call this command may make. A shell
 // must never wait on it: 2s is the same budget the completion path uses for
@@ -32,11 +46,27 @@ const updateRepo = "MakFly/pvecli"
 // mutates it outside tests.
 var githubAPIBase = "https://api.github.com"
 
-// updateCheckCache is what gets written to disk. LatestTag empty means the
-// last attempt to reach GitHub failed — see resolveLatestTag.
+// updateCacheSchema tags the shape of updateCheckCache below. Bump it
+// whenever a field is added or its meaning changes, and treat any cache
+// whose Schema does not match as absent (see readUpdateCache) — never as a
+// silent, empty success. Without this, a cache written by an older binary
+// (which never wrote a Success bit) would unmarshal Success as its Go zero
+// value, false, and be indistinguishable from a genuine failure: exactly the
+// kind of coincidence that must not be load-bearing.
+const updateCacheSchema = 2
+
+// updateCheckCache is what gets written to disk.
+//
+// Success says explicitly whether the last attempt reached GitHub, rather
+// than leaving the reader to infer it from LatestTag being empty. The two
+// used to be the same fact by coincidence; making it a named field means the
+// next person touching this code does not have to rediscover that coupling
+// — and it is what lets readFreshUpdateCache pick the right TTL below.
 type updateCheckCache struct {
+	Schema    int       `json:"schema"`
 	CheckedAt time.Time `json:"checked_at"`
 	LatestTag string    `json:"latest_tag"`
+	Success   bool      `json:"success"`
 }
 
 func newUpdateCmd() *cobra.Command {
@@ -145,6 +175,13 @@ func runUpdateCheck(cmd *cobra.Command, notify, refresh, force bool) error {
 	// background by the same snippet) is what keeps the lag at "one tick",
 	// not "forever".
 	if notify {
+		// Choix assumé : --notify ne signale jamais « je n'ai pas pu vérifier
+		// depuis N jours », même quand le cache est en échec depuis longtemps.
+		// Un shell qui râle à chaque ouverture parce que GitHub est
+		// injoignable serait une nuisance pire que le silence qu'il est censé
+		// garder — et « pvecli update check » en mode humain donne déjà la
+		// raison exacte à qui la demande. Si ce choix doit changer un jour,
+		// c'est ici qu'il faudrait ajouter la branche, pas le deviner.
 		c, err := readFreshUpdateCache()
 		if err != nil || c.LatestTag == "" || c.LatestTag == installed {
 			return nil
@@ -174,31 +211,45 @@ func runUpdateCheck(cmd *cobra.Command, notify, refresh, force bool) error {
 	return nil
 }
 
-// readFreshUpdateCache reads the cache and rejects it if its TTL has expired.
-// It never touches the network — this is the one function --notify is
-// allowed to call.
+// readFreshUpdateCache reads the cache and rejects it if its TTL has
+// expired. It never touches the network — this is the one function --notify
+// is allowed to call.
+//
+// The TTL applied depends on what the cache actually recorded: a success
+// gets updateCheckSuccessTTL (24h), a failure gets the much shorter
+// updateCheckFailureTTL (1h) — see its doc comment for why a single shared
+// TTL was the bug. A cache in an obsolete schema is rejected outright by
+// readUpdateCache below, so it is never mistaken for either.
 func readFreshUpdateCache() (*updateCheckCache, error) {
 	c, err := readUpdateCache(updateCachePath())
 	if err != nil {
 		return nil, err
 	}
-	if time.Since(c.CheckedAt) >= updateCheckTTL {
+	ttl := updateCheckFailureTTL
+	if c.Success {
+		ttl = updateCheckSuccessTTL
+	}
+	if time.Since(c.CheckedAt) >= ttl {
 		return nil, fmt.Errorf("cache périmé")
 	}
 	return c, nil
 }
 
-// resolveLatestTag serves the 24h cache when it is fresh, and reaches GitHub
-// otherwise. It never returns an error to a caller that would turn it into a
-// non-zero exit: fetchErr is informational, meant only for the human-readable
-// message in the non-notify path.
+// resolveLatestTag serves the cache when it is fresh for its own TTL (see
+// readFreshUpdateCache), and reaches GitHub otherwise. It never returns an
+// error to a caller that would turn it into a non-zero exit: fetchErr is
+// informational, meant only for the human-readable message in the
+// non-notify path.
 //
 // Point critique : un échec réseau est un état, pas une absence. Le cache est
 // réécrit avec un tag vide et un checked_at frais MÊME QUAND l'appel échoue.
 // Sans cela, un poste hors ligne ne verrait jamais le cache devenir « frais »
 // et relancerait l'appel réseau — donc payerait le timeout de 2s — à CHAQUE
 // ouverture de terminal, ce qui est exactement le martèlement que ce cache
-// existe pour éviter.
+// existe pour éviter. Ce qui a changé : cet horodatage-en-échec n'est plus
+// couvert par le même TTL qu'un succès (voir updateCheckFailureTTL) — un
+// échec transitoire (quota GitHub épuisé par une IP partagée, panne courte)
+// ne doit plus rendre --notify muet pour 24h.
 func resolveLatestTag(ctx context.Context, force bool) (tag string, fetchErr error) {
 	if !force {
 		if c, err := readFreshUpdateCache(); err == nil {
@@ -207,7 +258,12 @@ func resolveLatestTag(ctx context.Context, force bool) (tag string, fetchErr err
 	}
 
 	tag, fetchErr = fetchLatestTag(ctx)
-	writeUpdateCache(updateCachePath(), &updateCheckCache{CheckedAt: time.Now(), LatestTag: tag})
+	writeUpdateCache(updateCachePath(), &updateCheckCache{
+		Schema:    updateCacheSchema,
+		CheckedAt: time.Now(),
+		LatestTag: tag,
+		Success:   fetchErr == nil,
+	})
 	return tag, fetchErr
 }
 
@@ -265,6 +321,12 @@ func readUpdateCache(path string) (*updateCheckCache, error) {
 	var c updateCheckCache
 	if err := json.Unmarshal(raw, &c); err != nil {
 		return nil, err
+	}
+	// A cache written by an older schema (notably: no Success field at all)
+	// must be treated as absent, never as a silent success — see
+	// updateCacheSchema's doc comment for why that coincidence would be a bug.
+	if c.Schema != updateCacheSchema {
+		return nil, fmt.Errorf("cache dans un format obsolète")
 	}
 	return &c, nil
 }

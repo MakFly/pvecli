@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -52,10 +53,35 @@ func releaseServer(t *testing.T, tag string) *httptest.Server {
 	}))
 }
 
-func writeCacheFile(t *testing.T, checkedAt time.Time, tag string) {
+// writeCacheFile writes a cache entry in the CURRENT schema. success mirrors
+// what a real resolveLatestTag call would have recorded: true for a tag that
+// came back from GitHub, false for a failed attempt (tag is then normally
+// "").
+func writeCacheFile(t *testing.T, checkedAt time.Time, tag string, success bool) {
 	t.Helper()
 	path := updateCachePath()
-	writeUpdateCache(path, &updateCheckCache{CheckedAt: checkedAt, LatestTag: tag})
+	writeUpdateCache(path, &updateCheckCache{
+		Schema:    updateCacheSchema,
+		CheckedAt: checkedAt,
+		LatestTag: tag,
+		Success:   success,
+	})
+}
+
+// writeLegacyCacheFile writes a cache file in the pre-schema format (no
+// "schema", no "success" field at all) — exactly what a binary built before
+// this fix would have left on disk. It writes raw JSON on purpose, bypassing
+// writeUpdateCache, which cannot produce this shape anymore.
+func writeLegacyCacheFile(t *testing.T, checkedAt time.Time, tag string) {
+	t.Helper()
+	path := updateCachePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	raw := []byte(`{"checked_at":"` + checkedAt.Format(time.RFC3339) + `","latest_tag":"` + tag + `"}`)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatalf("writing legacy cache: %v", err)
+	}
 }
 
 // 1. A "dev" binary never touches the network, in any mode.
@@ -92,7 +118,7 @@ func TestUpdateCheckDevVersionNeverCallsNetwork(t *testing.T) {
 func TestUpdateCheckFreshCacheMakesNoRequest(t *testing.T) {
 	isolateCompletionCache(t)
 	withGithubAPI(t, failIfCalled(t).URL)
-	writeCacheFile(t, time.Now(), "v0.1.0")
+	writeCacheFile(t, time.Now(), "v0.1.0", true)
 
 	stdout, _, err := runUpdate(t, "v0.1.0")
 	if err != nil {
@@ -114,7 +140,7 @@ func TestUpdateCheckStaleCacheRefetches(t *testing.T) {
 	}))
 	defer srv.Close()
 	withGithubAPI(t, srv.URL)
-	writeCacheFile(t, time.Now().Add(-25*time.Hour), "v0.1.0")
+	writeCacheFile(t, time.Now().Add(-25*time.Hour), "v0.1.0", true)
 
 	stdout, _, err := runUpdate(t, "v0.1.0")
 	if err != nil {
@@ -140,7 +166,7 @@ func TestUpdateCheckStaleCacheRefetches(t *testing.T) {
 func TestUpdateCheckNotifySilentWhenUpToDate(t *testing.T) {
 	isolateCompletionCache(t)
 	withGithubAPI(t, failIfCalled(t).URL)
-	writeCacheFile(t, time.Now(), "v0.1.0")
+	writeCacheFile(t, time.Now(), "v0.1.0", true)
 
 	stdout, _, err := runUpdate(t, "v0.1.0", "--notify")
 	if err != nil {
@@ -155,7 +181,7 @@ func TestUpdateCheckNotifySilentWhenUpToDate(t *testing.T) {
 func TestUpdateCheckNotifyPrintsOneLineWhenOutdated(t *testing.T) {
 	isolateCompletionCache(t)
 	withGithubAPI(t, failIfCalled(t).URL)
-	writeCacheFile(t, time.Now(), "v0.2.0")
+	writeCacheFile(t, time.Now(), "v0.2.0", true)
 
 	stdout, _, err := runUpdate(t, "v0.1.0", "--notify")
 	if err != nil {
@@ -231,7 +257,7 @@ func TestUpdateCheckNotifyNeverTouchesNetworkWithNoCache(t *testing.T) {
 func TestUpdateCheckNotifyNeverTouchesNetworkWithStaleCache(t *testing.T) {
 	isolateCompletionCache(t)
 	withGithubAPI(t, failIfCalled(t).URL)
-	writeCacheFile(t, time.Now().Add(-25*time.Hour), "v0.2.0")
+	writeCacheFile(t, time.Now().Add(-25*time.Hour), "v0.2.0", true)
 
 	stdout, _, err := runUpdate(t, "v0.1.0", "--notify")
 	if err != nil {
@@ -254,7 +280,7 @@ func TestUpdateCheckRefreshIsSilentAndRewritesCache(t *testing.T) {
 	}))
 	defer srv.Close()
 	withGithubAPI(t, srv.URL)
-	writeCacheFile(t, time.Now().Add(-25*time.Hour), "v0.1.0")
+	writeCacheFile(t, time.Now().Add(-25*time.Hour), "v0.1.0", true)
 
 	stdout, stderr, err := runUpdate(t, "v0.1.0", "--refresh")
 	if err != nil {
@@ -351,7 +377,7 @@ func TestUpdateCheckForceIgnoresFreshCache(t *testing.T) {
 	}))
 	defer srv.Close()
 	withGithubAPI(t, srv.URL)
-	writeCacheFile(t, time.Now(), "v0.1.0")
+	writeCacheFile(t, time.Now(), "v0.1.0", true)
 
 	stdout, _, err := runUpdate(t, "v0.1.0", "--force")
 	if err != nil {
@@ -363,4 +389,97 @@ func TestUpdateCheckForceIgnoresFreshCache(t *testing.T) {
 	if !strings.Contains(stdout, "v0.3.0") {
 		t.Errorf("stdout = %q, want the forced fetch's v0.3.0", stdout)
 	}
+}
+
+// 17. A failed check gets a SHORT TTL (1h), not the 24h a success gets. A
+// GitHub 403 30 minutes old is still within that short window, so --refresh
+// must not retry yet — this is the anti-hammering half of the guarantee.
+func TestUpdateCheckFailureCacheStaysFreshWithinItsShortTTL(t *testing.T) {
+	isolateCompletionCache(t)
+	withGithubAPI(t, failIfCalled(t).URL)
+	writeCacheFile(t, time.Now().Add(-30*time.Minute), "", false)
+
+	if _, _, err := runUpdate(t, "v0.1.0", "--refresh"); err != nil {
+		t.Fatalf("returned an error: %v", err)
+	}
+}
+
+// 18. The same failed check, now 2h old, is past its 1h TTL and must be
+// retried. This is the test that pins the fix itself: on the previous
+// (single 24h TTL) implementation, this assertion would fail — a shared-IP
+// rate limit would keep --notify silent for a full day after it lifted.
+func TestUpdateCheckFailureCacheRefetchesAfterItsShortTTL(t *testing.T) {
+	isolateCompletionCache(t)
+	var calls int
+	srv := releaseHandlerCountingCalls(t, "v0.2.0", &calls)
+	defer srv.Close()
+	withGithubAPI(t, srv.URL)
+	writeCacheFile(t, time.Now().Add(-2*time.Hour), "", false)
+
+	if _, _, err := runUpdate(t, "v0.1.0", "--refresh"); err != nil {
+		t.Fatalf("returned an error: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want exactly 1 — a 2h-old failed check must be retried", calls)
+	}
+
+	c, err := readUpdateCache(updateCachePath())
+	if err != nil {
+		t.Fatalf("cache was not rewritten: %v", err)
+	}
+	if !c.Success || c.LatestTag != "v0.2.0" {
+		t.Errorf("cache = %+v, want a recorded success with v0.2.0", c)
+	}
+}
+
+// 19. A SUCCESSFUL check keeps its full 24h TTL — the fix must not shrink
+// the TTL that was already correct, only the failure one.
+func TestUpdateCheckSuccessCacheKeepsItsLongTTL(t *testing.T) {
+	isolateCompletionCache(t)
+	withGithubAPI(t, failIfCalled(t).URL)
+	writeCacheFile(t, time.Now().Add(-2*time.Hour), "v0.1.0", true)
+
+	if _, _, err := runUpdate(t, "v0.1.0", "--refresh"); err != nil {
+		t.Fatalf("returned an error: %v", err)
+	}
+}
+
+// 20. A cache written by an older schema (no "schema"/"success" fields) must
+// be treated as ABSENT, never as a silent, empty success — the Go zero value
+// of a missing "success" field is false, which happens to look like a
+// recorded failure. Without the explicit schema guard, an upgrade would
+// misread a perfectly good old cache (or the reverse) by coincidence.
+func TestUpdateCheckLegacyCacheIsTreatedAsAbsent(t *testing.T) {
+	isolateCompletionCache(t)
+	var calls int
+	srv := releaseHandlerCountingCalls(t, "v0.2.0", &calls)
+	defer srv.Close()
+	withGithubAPI(t, srv.URL)
+	writeLegacyCacheFile(t, time.Now(), "v0.1.0")
+
+	if _, _, err := runUpdate(t, "v0.1.0", "--refresh"); err != nil {
+		t.Fatalf("returned an error: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want exactly 1 — a legacy-schema cache must be refetched, not trusted", calls)
+	}
+
+	c, err := readUpdateCache(updateCachePath())
+	if err != nil {
+		t.Fatalf("cache was not rewritten in the current schema: %v", err)
+	}
+	if c.Schema != updateCacheSchema {
+		t.Errorf("schema = %d, want %d after the rewrite", c.Schema, updateCacheSchema)
+	}
+}
+
+// releaseHandlerCountingCalls is releaseServer (above) plus a call counter,
+// factored out because two tests below need to assert "exactly one request".
+func releaseHandlerCountingCalls(t *testing.T, tag string, calls *int) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*calls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tag_name":"` + tag + `"}`))
+	}))
 }
