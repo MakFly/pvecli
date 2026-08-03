@@ -107,19 +107,95 @@ func TestNoInlineEndpoint(t *testing.T) {
 	}
 }
 
-// Every declared endpoint must be documented, with the source that was
-// consulted to verify its schema.
-func TestAPIMapCoverage(t *testing.T) {
+// documentedMethods reads docs/API-MAP.md and returns, per endpoint pattern,
+// the set of methods the table actually documents for it.
+//
+// It parses the table rather than searching the whole file as a string,
+// because a substring match answers the wrong question. Until PVX-085 this
+// test only asked "does this pattern appear anywhere?", so a pattern already
+// documented for ONE method silently vouched for every other — eight endpoints
+// passed that way, `POST /nodes/{node}/status` among them. The rule of
+// PRD §6.3 is per call, and a call is a method AND a path.
+//
+// The table is « | Endpoint | Méthode | … », and its method cell carries one or
+// several methods separated by « · » when a single row documents a read and
+// its write together.
+func documentedMethods(t *testing.T) map[string]map[string]bool {
+	t.Helper()
+
 	raw, err := os.ReadFile("../../docs/API-MAP.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	apiMap := string(raw)
+
+	documented := map[string]map[string]bool{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "|") {
+			continue
+		}
+		cells := strings.Split(line, "|")
+		if len(cells) < 4 {
+			continue
+		}
+		pattern := strings.Trim(strings.TrimSpace(cells[1]), "`")
+		if !strings.HasPrefix(pattern, "/") {
+			// Header row, separator row, or a table that is not this one.
+			continue
+		}
+		if documented[pattern] == nil {
+			documented[pattern] = map[string]bool{}
+		}
+		for _, method := range strings.Split(cells[2], "·") {
+			documented[pattern][strings.TrimSpace(method)] = true
+		}
+	}
+	return documented
+}
+
+// Every declared endpoint must be documented FOR THE METHOD IT USES, with the
+// source that was consulted to verify its schema.
+func TestAPIMapCoverage(t *testing.T) {
+	documented := documentedMethods(t)
 
 	for _, e := range AllEndpoints {
-		if !strings.Contains(apiMap, "`"+e.Pattern+"`") {
+		methods, ok := documented[e.Pattern]
+		if !ok {
 			t.Errorf("l'endpoint %s %s n'est pas dans docs/API-MAP.md — un endpoint non documenté est un endpoint qu'on a pu inventer",
 				e.Method, e.Pattern)
+			continue
+		}
+		if !methods[e.Method] {
+			t.Errorf("docs/API-MAP.md documente %s, mais pas en %s — le schéma d'un POST n'est pas celui du GET de même chemin, et c'est le schéma qu'on est censé avoir vérifié",
+				e.Pattern, e.Method)
+		}
+	}
+}
+
+// The tightening above is only worth its lines if it can FAIL. A coverage test
+// that cannot distinguish two methods on one path is the one this replaced, and
+// it passed for eight endpoints it had never really checked.
+//
+// So this pins the discrimination itself, against the real file: a method the
+// table does not carry for a path must be seen as missing, even when the path
+// is documented — including on a path that legitimately carries two methods.
+func TestAPIMapCoverageDistinguishesMethods(t *testing.T) {
+	documented := documentedMethods(t)
+
+	for _, probe := range []struct {
+		endpoint
+		reason string
+	}{
+		{endpoint{"POST", "/version"}, "chemin documenté en GET seulement"},
+		{endpoint{"DELETE", "/nodes/{node}/status"}, "chemin documenté en GET et POST, pas en DELETE"},
+		{endpoint{"PUT", "/cluster/resources"}, "chemin documenté en GET seulement"},
+	} {
+		methods, ok := documented[probe.Pattern]
+		if !ok {
+			t.Fatalf("%s devrait être documenté pour au moins une méthode — la sonde ne teste plus rien", probe.Pattern)
+		}
+		if methods[probe.Method] {
+			t.Errorf("%s %s est vu comme documenté (%s) — la couverture est retombée sur le motif seul",
+				probe.Method, probe.Pattern, probe.reason)
 		}
 	}
 }
