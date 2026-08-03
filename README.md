@@ -175,6 +175,30 @@ systemctl --user start pvecli-update.service       # check right now
 journalctl --user -u pvecli-update.service -n 20   # what it did
 ```
 
+### Getting notified, without auto-installing
+
+The timer above *installs* silently. If you'd rather just be *told* a new
+release exists — on your own schedule, without a background service touching
+your disk — `pvecli update check` covers that instead, and the two coexist:
+
+```sh
+pvecli update check           # à jour / vX → vY disponible / dev / vérification impossible
+pvecli update check --force   # ignore le cache de 24h, refait l'appel réseau
+```
+
+For a heads-up at every new terminal, add to `~/.zshrc`:
+
+```sh
+[[ -f /path/to/pvecli/scripts/shell/update-notify.zsh ]] && \
+  source /path/to/pvecli/scripts/shell/update-notify.zsh
+```
+
+It runs `pvecli update check --notify` in the background: silent unless an
+update exists, never slows down shell startup, never touches the network more
+than once every 24h (`$XDG_CACHE_HOME/pvecli/update-check.json`), and stays
+silent for a locally-built (`dev`) binary — see `scripts/shell/update-notify.zsh`
+for why the backgrounding is written the way it is.
+
 Only `linux/amd64` and `darwin/arm64` are published. Anywhere else, build from
 source — Go 1.26+:
 
