@@ -7,6 +7,8 @@
 #   PVECLI_VERSION        version précise (défaut : la dernière release)
 #   PREFIX                racine d'installation (défaut : ~/.local → ~/.local/bin)
 #   PVECLI_NO_AGENT       =1 pour ne pas installer l'agent Claude Code
+#   PVECLI_NO_SHELL_HOOK  =1 pour ne pas câbler la notification de mise à
+#                         jour dans le shell (voir « pvecli update install-hook »)
 #   PVECLI_ONLY_IF_NEWER  =1 pour ne rien faire si la version visée est déjà
 #                         installée — c'est ce qui rend ce script rejouable
 #                         sans frais depuis un timer (voir scripts/autoupdate/).
@@ -161,6 +163,21 @@ say "  ✓ $BINDIR/$BINARY"
 # La preuve est l'exécution, pas la copie.
 got="$("$BINDIR/$BINARY" --version)" || die "le binaire installé ne s'exécute pas."
 say "  ✓ $got"
+
+# ── Notification de mise à jour ───────────────────────────────────────────────
+#
+# Câble scripts/shell/install-hook.sh (PVX-090), désormais une fonctionnalité
+# du binaire lui-même : ce script n'a jamais le dépôt sous la main, seulement
+# le binaire qu'il vient de poser, et « pvecli update install-hook » embarque
+# tout ce qu'il faut. Un échec ici n'est pas un échec d'installation : pvecli
+# est installé, c'est l'essentiel — le hook n'est qu'un confort.
+if [ "${PVECLI_NO_SHELL_HOOK:-}" != "1" ]; then
+	if hook_out="$("$BINDIR/$BINARY" update install-hook 2>/dev/null)"; then
+		say "  · $(printf '%s' "$hook_out" | head -1)"
+	else
+		say "  · notification non câblée — « pvecli update install-hook » à la main"
+	fi
+fi
 
 # ── Agent Claude Code ─────────────────────────────────────────────────────────
 

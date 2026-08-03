@@ -1,11 +1,15 @@
-// Package shell holds test-only coverage for the zsh snippets under
-// scripts/shell/. There is no other Go code here — the snippets are the
-// deliverable — but the previous version of update-notify.sh shipped with a
-// bug (--notify's output was thrown into /dev/null) that no Go test could
-// ever have caught, because every existing test exercised the `pvecli`
-// binary directly and never the shell script the user actually sources.
-// These tests close that gap by running the real snippet under a real zsh.
-package shell
+package cmd
+
+// This file replaces scripts/shell/update_notify_test.go, which tested
+// scripts/shell/update-notify.sh directly off disk. That file moved to
+// cmd/assets/update-notify.sh (see cmd/update_hook.go for why go:embed
+// forced the move); these tests move with it and now exercise
+// updateNotifySnippet — the exact bytes embedded into the binary — rather
+// than a path on disk, which is a strictly stronger guarantee: it is what
+// actually ships, not a copy that could drift from the embed. All four
+// original cases are preserved, in particular
+// TestUpdateNotifySnippetStaysSilentWithAnOlderPvecli, which pins a defect
+// measured in production on 03-08-2026.
 
 import (
 	"context"
@@ -47,13 +51,15 @@ func fakePvecli(t *testing.T, binDir, notifyLine, refreshMarker string) {
 	}
 }
 
-func snippetPath(t *testing.T) string {
+// writeSnippetToTempFile materialises the exact bytes embedded in the
+// binary as a real file zsh can source, in its own throwaway directory.
+func writeSnippetToTempFile(t *testing.T) string {
 	t.Helper()
-	abs, err := filepath.Abs("update-notify.sh")
-	if err != nil {
-		t.Fatalf("resolving snippet path: %v", err)
+	path := filepath.Join(t.TempDir(), "update-notify.sh")
+	if err := os.WriteFile(path, []byte(updateNotifySnippet), 0o644); err != nil {
+		t.Fatalf("écriture du snippet : %v", err)
 	}
-	return abs
+	return path
 }
 
 // TestUpdateNotifySnippetPrintsNotifyLineAndBackgroundsRefresh is the test
@@ -62,13 +68,14 @@ func snippetPath(t *testing.T) string {
 // --refresh in the background so the NEXT terminal has fresh data.
 func TestUpdateNotifySnippetPrintsNotifyLineAndBackgroundsRefresh(t *testing.T) {
 	zshPath := requireZsh(t)
+	snippet := writeSnippetToTempFile(t)
 	binDir := t.TempDir()
 	refreshMarker := filepath.Join(binDir, "refresh-called")
 	fakePvecli(t, binDir, "FAKE-NOTIFY-LINE", refreshMarker)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, zshPath, "-c", "source "+snippetPath(t))
+	cmd := exec.CommandContext(ctx, zshPath, "-c", "source "+snippet)
 	cmd.Env = append(os.Environ(), "PATH="+binDir+":"+os.Getenv("PATH"))
 
 	out, err := cmd.CombinedOutput()
@@ -106,11 +113,12 @@ func TestUpdateNotifySnippetPrintsNotifyLineAndBackgroundsRefresh(t *testing.T) 
 // context instead of asserting on a code that means nothing outside it.
 func TestUpdateNotifySnippetIsANoopWithoutPvecli(t *testing.T) {
 	zshPath := requireZsh(t)
+	snippet := writeSnippetToTempFile(t)
 	emptyBinDir := t.TempDir() // deliberately no `pvecli` in here
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, zshPath, "-c", "source "+snippetPath(t)+"; true")
+	cmd := exec.CommandContext(ctx, zshPath, "-c", "source "+snippet+"; true")
 	cmd.Env = []string{"PATH=" + emptyBinDir}
 
 	out, err := cmd.CombinedOutput()
@@ -133,6 +141,7 @@ func TestUpdateNotifySnippetIsANoopWithoutPvecli(t *testing.T) {
 // redirecting stdout is what broke this feature the first time around.
 func TestUpdateNotifySnippetStaysSilentWithAnOlderPvecli(t *testing.T) {
 	zshPath := requireZsh(t)
+	snippet := writeSnippetToTempFile(t)
 	binDir := t.TempDir()
 
 	// A pvecli that predates `update check`: it fails the way cobra does,
@@ -144,7 +153,7 @@ func TestUpdateNotifySnippetStaysSilentWithAnOlderPvecli(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, zshPath, "-c", "source "+snippetPath(t)+"; sleep 0.3; true")
+	cmd := exec.CommandContext(ctx, zshPath, "-c", "source "+snippet+"; sleep 0.3; true")
 	cmd.Env = []string{"PATH=" + binDir + ":/usr/bin:/bin"}
 
 	out, err := cmd.CombinedOutput()
@@ -163,6 +172,7 @@ func TestUpdateNotifySnippetStaysSilentWithAnOlderPvecli(t *testing.T) {
 // `zsh -c` script, since job-control reporting differs between the two.
 func TestUpdateNotifySnippetProducesNoJobControlNoiseInteractively(t *testing.T) {
 	zshPath := requireZsh(t)
+	snippet := writeSnippetToTempFile(t)
 	binDir := t.TempDir()
 	fakePvecli(t, binDir, "FAKE-NOTIFY-LINE", filepath.Join(binDir, "refresh-called"))
 
@@ -176,7 +186,7 @@ func TestUpdateNotifySnippetProducesNoJobControlNoiseInteractively(t *testing.T)
 	// The trailing `sleep 0.3` gives the backgrounded job a chance to finish
 	// (and, if the subshell trick failed, to print its "done" line) before
 	// the interactive shell — and this assertion — exits.
-	cmd := exec.CommandContext(ctx, zshPath, "-i", "-c", "source "+snippetPath(t)+"; sleep 0.3")
+	cmd := exec.CommandContext(ctx, zshPath, "-i", "-c", "source "+snippet+"; sleep 0.3")
 	cmd.Env = []string{
 		"PATH=" + binDir + ":/usr/bin:/bin",
 		"ZDOTDIR=" + zdotdir,

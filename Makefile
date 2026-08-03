@@ -94,6 +94,9 @@ install-node: ## Copie le binaire linux sur le nœud et vérifie qu'il s'exécut
 install: build ## Installe pvecli sur le POSTE, et avec lui l'agent IA dans ~/.claude
 	install -d $(PREFIX)/bin
 	install -m 0755 $(BINARY) $(PREFIX)/bin/$(BINARY)
+	@echo "--- notification de mise à jour ---"
+	@$(PREFIX)/bin/$(BINARY) update install-hook || \
+		echo "notification non câblée — « pvecli update install-hook » à la main"
 	@echo "--- agent Claude Code ---"
 	@$(PREFIX)/bin/$(BINARY) ai install || { \
 		echo "l'agent n'a pas pu être installé — « pvecli ai install --force » après relecture"; \
