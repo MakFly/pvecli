@@ -21,7 +21,8 @@
 > | PVX-086 preuve live de M13 | M13 Exploitation | 🔴 **RAF** — bloqué : exige une identité `Administrator` |
 > | PVX-087 preuve live de M11 | M11 Accès délégué | 🔴 **RAF** — bloqué : `403 (/access/acl, Permissions.Modify)` |
 > | PVX-088 capturer les fixtures de job de sauvegarde | M13 Exploitation | 🔴 **RAF** — dépend de PVX-086 |
-> | PVX-089 secret en clair sur le poste Linux | M12 Amorçage & secret | 🔴 **RAF** — réglé sur le Mac le 03-08 |
+> | PVX-089 secret en clair sur le poste Linux | M12 Amorçage & secret | 🔴 **RAF** — re-qualifié le 03-08 : le trousseau `login` est **verrouillé**, pas absent |
+> | PVX-090 notification de mise à jour au shell | M12 Amorçage & secret | ✅ livré — 3 correctifs, dont deux mesurés en production |
 
 ---
 
@@ -80,7 +81,42 @@ D1 dit « Keychain, jamais de fichier en clair ». Tant que la source est
 `~/.config/pvecli/secret`, le câblage par `secret_command` **contourne** la
 décision au lieu de l'appliquer. Réglé sur le Mac le 03-08 en pointant
 `secret_command` sur le trousseau — `doctor` y est vert sans aucune variable
-d'environnement. Reste le poste Linux, où libsecret doit remplacer le fichier.
+d'environnement. Reste le poste Linux.
+
+**Ce que cette story disait, et qui est faux.** Elle annonçait « libsecret doit
+remplacer le fichier », comme s'il restait du code à écrire. Il n'en reste
+aucun : le backend existe déjà (`internal/secret`, `secretTool`, détecté par
+`lookPath("secret-tool")`) et `pvecli auth set-secret --stdin` est le chemin
+prévu. Tenté le 03-08, il échoue :
+
+```
+$ pvecli auth set-secret --stdin < ~/.config/pvecli/secret
+Error: écriture dans le trousseau :
+       secret-tool: Cannot create an item in a locked collection
+
+$ busctl --user call org.freedesktop.secrets \
+    /org/freedesktop/secrets/collection/login \
+    org.freedesktop.DBus.Properties Get ss \
+    org.freedesktop.Secret.Collection Locked
+v b true
+```
+
+Le trousseau `login` est **verrouillé**, et la session est `XDG_SESSION_TYPE=tty`
+sans bureau : aucun agent de saisie ne peut réclamer le mot de passe. Le
+déverrouillage exige une frappe humaine.
+
+**Et c'est D1 qu'il faut relire, pas le code.** Sur une session Linux en tty non
+déverrouillée — SSH, cron, CI, agent, c'est-à-dire l'essentiel des contextes où
+une CLI sert — le trousseau est structurellement hors d'atteinte. « Keychain,
+jamais de fichier en clair » y est donc **inatteignable**, pas seulement
+non implémenté. La CLI, elle, se comporte correctement : elle se rabat, et
+`auth status` dit la vérité sur la source utilisée.
+
+**Ordre de migration, quand le trousseau est déverrouillé.** Ranger le secret →
+vérifier `auth status` → *puis seulement* retirer `secret_command` → *puis*
+supprimer le fichier. Tant que le trousseau est verrouillé,
+`~/.config/pvecli/secret` est la **seule** source du secret : le supprimer coupe
+l'accès au nœud.
 
 *(Détail : l'entrée du trousseau du Mac porte encore l'ancien nom
 `pvectl-token`/`pvectl`, resté du renommage M8. À normaliser en interactif :
@@ -915,3 +951,75 @@ version `dev` et contient presque toujours **plus** que la dernière release. Le
 remplacer la nuit ferait disparaître le correctif en cours de test, et la panne
 du lendemain se chercherait partout sauf là. `install.sh` refuse donc d'écraser
 un binaire `dev` et dit comment repasser volontairement sur la release publiée.
+
+---
+
+### PVX-090 — Le shell prévient qu'une release existe, sans rien installer
+
+**Taille** M · **Type** ⚙ · **Lot** M12 · **Statut** ✅ livré — 2026-08-03
+
+**Pourquoi une story de plus alors que PVX-081 existe.** Le timer *installe*,
+en silence, une fois par jour. Il ne dit rien, et c'est voulu. Mais un poste
+sans timer — ou dont le linger est désactivé, donc dont le timer ne tourne que
+session ouverte — n'apprend jamais qu'il est en retard. Notifier et installer
+sont deux besoins distincts : le premier suppose un humain devant l'écran, le
+second suppose exactement l'inverse. Les deux coexistent, l'un peut être absent
+sans casser l'autre.
+
+**Livré** — `pvecli update check`, et un snippet sourcé par le shell.
+
+| Appel | Plan | Réseau | Parle |
+| --- | --- | --- | --- |
+| `update check --notify` | premier plan | ❌ jamais — lit le cache seul | une ligne, si MAJ |
+| `update check --refresh` | arrière-plan détaché | ✅ timeout 2 s | jamais |
+| `update check` | premier plan | ✅ | toujours (appel humain explicite) |
+
+**La scission n'est pas un choix de style.** Une seule commande ne peut pas à la
+fois répondre INSTANTANÉMENT (un prompt ne doit jamais attendre) et avoir le
+droit d'attendre 2 s sur le réseau. Les concilier dans un seul appel force soit
+à bloquer le prompt, soit à imprimer la ligne de façon asynchrone plusieurs
+secondes après — c'est-à-dire au milieu d'une commande déjà en train d'être
+tapée. Conséquence assumée : la notification a **un terminal de retard** sur la
+release réelle. Le `--refresh` de cette ouverture prépare la notification de la
+suivante.
+
+**Deux TTL, pas un.** Le quota anonyme de l'API GitHub est de 60 appels/h **par
+IP** : derrière un NAT de bureau, un VPN ou un runner partagé, il se brûle sans
+que le poste y soit pour rien. Un échec qui re-tamponnerait le TTL de succès
+rendrait la notification muette 24 h — une panne transitoire promue en panne
+permanente. Donc **succès 24 h, échec 1 h**, et un cache versionné
+(`{"schema":2, checked_at, latest_tag, success}`) dont un schéma inconnu est
+traité comme **absent**, jamais comme un succès à tag vide.
+
+**Ce que ça doit t'apprendre** — *une fonctionnalité dont l'état nominal est le
+silence n'a aucun signal de vie.* Trois défauts successifs, tous du même mode de
+panne, tous invisibles depuis une suite de tests verte :
+
+1. Le snippet redirigeait `--notify` vers `/dev/null` — c'est-à-dire le seul
+   endroit où la fonctionnalité parle. 8 tests Go verts, mutation-testés
+   positivement, et zéro octet atteignait l'utilisateur : **aucun n'exécutait le
+   script**, seul point d'entrée documenté.
+2. Retirer la redirection ne suffisait pas (cf. la scission ci-dessus).
+3. Le TTL unique ci-dessus.
+
+D'où la règle qui sort de cette story : **la frontière testée doit être la
+frontière livrée**. `cmd/assets/update-notify.sh` a sa propre couverture, qui
+l'exécute sous un vrai `zsh` avec un faux `pvecli` en tête de `PATH`.
+
+**Un quatrième défaut, mesuré en production dans la minute qui a suivi la pose
+du bloc dans un vrai `~/.zshrc`** : le binaire installé était antérieur à la
+story, ne connaissait pas `update check`, et répondait `Error: unknown flag:
+--notify` sur stderr **à chaque ouverture de terminal**. `command -v pvecli` ne
+peut pas voir ça — le binaire existe, il est seulement trop vieux. Le premier
+plan jette donc **stderr, et stderr seulement** : stdout porte la charge utile,
+stderr ne peut porter ici qu'un diagnostic adressé à personne.
+
+**Câblage à l'installation** — `pvecli update install-hook` écrit le snippet
+embarqué et l'ajoute à `~/.zshrc` ou `~/.bashrc`. Il suit `$SHELL` et non
+l'interpréteur courant (`curl | sh` tourne sous `/bin/sh` même chez les gens en
+zsh), est rejouable par paire de marqueurs, réversible par `--uninstall`, et
+refusable par `PVECLI_NO_SHELL_HOOK=1`. Le snippet est **embarqué dans le
+binaire** parce qu'`install.sh`, récupéré seul par `curl`, n'a jamais le dépôt
+sous la main : la seule alternative était d'en garder une copie dans
+l'installeur, et deux copies qui doivent rester d'accord finissent toujours par
+diverger.
