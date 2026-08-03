@@ -48,6 +48,34 @@ func TestNodesDecodesRealAnswer(t *testing.T) {
 	}
 }
 
+func TestNextIDDecodesString(t *testing.T) {
+	c := serveFixture(t, "../../testdata/cluster-nextid.json")
+
+	// The fixture holds `{"data":"235"}` — a JSON STRING. Decoding NextID's
+	// intermediate value straight into an int (the "obvious" simplification)
+	// would fail json.Unmarshal on this very fixture, because Go refuses a
+	// string literal into an int field. That is what makes this test catch
+	// the regression instead of merely documenting the quirk in prose.
+	id, err := c.NextID(context.Background())
+	if err != nil {
+		t.Fatalf("NextID: %v", err)
+	}
+	if id != 235 {
+		t.Errorf("NextID = %d, want 235", id)
+	}
+}
+
+func TestNextIDRejectsNonNumericPayload(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":"pas-un-nombre"}`))
+	})
+
+	if _, err := c.NextID(context.Background()); err == nil {
+		t.Fatal("NextID : attendu une erreur sur une charge utile non numérique, obtenu nil")
+	}
+}
+
 func TestNodeStatusDecodesRealAnswer(t *testing.T) {
 	c := serveFixture(t, "../../testdata/node-status.json")
 

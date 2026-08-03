@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/MakFly/pvecli/internal/iac"
+	"github.com/MakFly/pvecli/internal/testutil"
 )
 
 func TestLXCDeclareWritesTheContainerAndItsServiceTags(t *testing.T) {
@@ -121,6 +123,199 @@ func TestLXCDeclareDryRunWritesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(tfDir, iac.DeclarationFile)); err == nil {
 		t.Error("--dry-run a écrit la déclaration")
+	}
+}
+
+// Symétrique de TestDeclareStaysOfflineWithoutSuggestID côté LXC : sans
+// --suggest-id, aucune requête ne doit partir, même vers un serveur prêt à
+// répondre.
+func TestLXCDeclareStaysOfflineWithoutSuggestID(t *testing.T) {
+	scaffoldDirs(t)
+	srv := testutil.New(t, "../testdata", map[string]string{
+		"GET /api2/json/cluster/nextid": "cluster-nextid.json",
+	})
+	point(t, srv.URL)
+
+	_, _, err := run(t, "lxc", "declare", "ct-01",
+		"--cores", "1", "--memory", "2048", "--template", "200", "--with", "", "--yes")
+	if err == nil {
+		t.Fatal("une création sans --vmid ni --suggest-id doit être refusée")
+	}
+	if !strings.Contains(err.Error(), "obligatoire") {
+		t.Errorf("le message doit rappeler le champ obligatoire : %v", err)
+	}
+	if len(srv.Requests) != 0 {
+		t.Errorf("aucune requête ne doit partir sans --suggest-id, reçu : %v", srv.Requests)
+	}
+}
+
+// Chemin nominal côté LXC : --suggest-id contacte le nœud, le vmid proposé se
+// retrouve dans la déclaration écrite sur disque.
+func TestLXCDeclareSuggestIDWritesTheProposedVMID(t *testing.T) {
+	tfDir, _ := scaffoldDirs(t)
+	srv := testutil.New(t, "../testdata", map[string]string{
+		"GET /api2/json/cluster/nextid": "cluster-nextid.json",
+	})
+	point(t, srv.URL)
+
+	if _, _, err := run(t, "lxc", "declare", "ct-01",
+		"--suggest-id", "--cores", "1", "--memory", "2048", "--template", "200",
+		"--with", "", "--yes"); err != nil {
+		t.Fatalf("lxc declare --suggest-id : %v", err)
+	}
+
+	ct, ok := readDeclaration(t, tfDir).LXCs["ct-01"]
+	if !ok {
+		t.Fatal("ct-01 absent de la déclaration")
+	}
+	if ct.VMID != 235 {
+		t.Errorf("vmid = %d, want 235 (proposé par la fixture cluster-nextid.json)", ct.VMID)
+	}
+}
+
+// --vmid et --suggest-id ensemble : refusé avant tout appel réseau, côté LXC
+// aussi.
+func TestLXCDeclareRefusesVMIDWithSuggestID(t *testing.T) {
+	scaffoldDirs(t)
+	srv := testutil.New(t, "../testdata", map[string]string{
+		"GET /api2/json/cluster/nextid": "cluster-nextid.json",
+	})
+	point(t, srv.URL)
+
+	_, _, err := run(t, "lxc", "declare", "ct-01",
+		"--vmid", "221", "--suggest-id", "--cores", "1", "--memory", "2048", "--template", "200",
+		"--with", "", "--yes")
+	if err == nil {
+		t.Fatal("--vmid et --suggest-id ensemble doivent être refusés")
+	}
+	var coded interface{ ExitCode() int }
+	if !errors.As(err, &coded) || coded.ExitCode() != 2 {
+		t.Errorf("code de sortie = %v, want 2", err)
+	}
+	if len(srv.Requests) != 0 {
+		t.Errorf("le refus doit précéder tout appel réseau, reçu : %v", srv.Requests)
+	}
+}
+
+// --remove et --suggest-id ensemble, côté LXC -- symétrique de
+// TestDeclareRefusesRemoveWithSuggestID.
+func TestLXCDeclareRefusesRemoveWithSuggestID(t *testing.T) {
+	scaffoldDirs(t)
+	srv := testutil.New(t, "../testdata", map[string]string{
+		"GET /api2/json/cluster/nextid": "cluster-nextid.json",
+	})
+	point(t, srv.URL)
+
+	_, _, err := run(t, "lxc", "declare", "ct-01", "--remove", "--suggest-id", "--yes")
+	if err == nil {
+		t.Fatal("--remove et --suggest-id ensemble doivent être refusés")
+	}
+	var coded interface{ ExitCode() int }
+	if !errors.As(err, &coded) || coded.ExitCode() != 2 {
+		t.Errorf("code de sortie = %v, want 2", err)
+	}
+	if len(srv.Requests) != 0 {
+		t.Errorf("le refus doit précéder tout appel réseau, reçu : %v", srv.Requests)
+	}
+}
+
+// --suggest-id sur un conteneur déjà déclaré, côté LXC -- symétrique de
+// TestDeclareRefusesSuggestIDOnAnExistingEntry.
+func TestLXCDeclareRefusesSuggestIDOnAnExistingEntry(t *testing.T) {
+	scaffoldDirs(t)
+	if _, _, err := run(t, "lxc", "declare", "ct-01",
+		"--vmid", "221", "--cores", "1", "--memory", "2048", "--template", "200",
+		"--with", "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := testutil.New(t, "../testdata", map[string]string{
+		"GET /api2/json/cluster/nextid": "cluster-nextid.json",
+	})
+	point(t, srv.URL)
+
+	_, _, err := run(t, "lxc", "declare", "ct-01", "--suggest-id", "--yes")
+	if err == nil {
+		t.Fatal("--suggest-id sur un conteneur déjà déclaré doit être refusé")
+	}
+	var coded interface{ ExitCode() int }
+	if !errors.As(err, &coded) || coded.ExitCode() != 2 {
+		t.Errorf("code de sortie = %v, want 2", err)
+	}
+	if len(srv.Requests) != 0 {
+		t.Errorf("le refus doit précéder tout appel réseau, reçu : %v", srv.Requests)
+	}
+}
+
+// Symétrique de TestDeclareSuggestIDAvoidsALocalCollision côté LXC.
+func TestLXCDeclareSuggestIDAvoidsALocalCollision(t *testing.T) {
+	tfDir, _ := scaffoldDirs(t)
+	srv := testutil.New(t, "../testdata", map[string]string{
+		"GET /api2/json/cluster/nextid": "cluster-nextid.json",
+	})
+	point(t, srv.URL)
+
+	if _, _, err := run(t, "lxc", "declare", "ct-01",
+		"--suggest-id", "--cores", "1", "--memory", "2048", "--template", "200",
+		"--with", "", "--yes"); err != nil {
+		t.Fatalf("ct-01 : %v", err)
+	}
+	_, stderr, err := run(t, "lxc", "declare", "ct-02",
+		"--suggest-id", "--cores", "1", "--memory", "2048", "--template", "200",
+		"--with", "", "--yes")
+	if err != nil {
+		t.Fatalf("ct-02 : %v", err)
+	}
+	// Une troisième déclaration : si l'ajustement local ne faisait qu'un seul
+	// pas (`if` au lieu d'un `for`), ct-03 recevrait encore 236 -- déjà pris
+	// par ct-02 -- au lieu d'avancer jusqu'au prochain id vraiment libre.
+	if _, _, err := run(t, "lxc", "declare", "ct-03",
+		"--suggest-id", "--cores", "1", "--memory", "2048", "--template", "200",
+		"--with", "", "--yes"); err != nil {
+		t.Fatalf("ct-03 : %v", err)
+	}
+
+	d := readDeclaration(t, tfDir)
+	if d.LXCs["ct-01"].VMID != 235 {
+		t.Errorf("ct-01 vmid = %d, want 235", d.LXCs["ct-01"].VMID)
+	}
+	if d.LXCs["ct-02"].VMID != 236 {
+		t.Errorf("ct-02 vmid = %d, want 236 (235 déjà revendiqué par ct-01)", d.LXCs["ct-02"].VMID)
+	}
+	if d.LXCs["ct-03"].VMID != 237 {
+		t.Errorf("ct-03 vmid = %d, want 237 (235 et 236 déjà revendiqués) : l'ajustement doit avancer d'autant de pas que nécessaire, pas d'un seul", d.LXCs["ct-03"].VMID)
+	}
+	if !strings.Contains(stderr, "déjà revendiqué") {
+		t.Errorf("le message doit dire que l'ajustement a eu lieu :\n%s", stderr)
+	}
+	if len(srv.Requests) != 3 {
+		t.Errorf("un seul appel réseau par invocation attendu (3 au total), reçu : %v", srv.Requests)
+	}
+}
+
+// Le même compteur de vmid est partagé entre VM et LXC côté PVE : une
+// suggestion sur un conteneur doit éviter un vmid déjà pris par une VM
+// déclarée, pas seulement par un autre conteneur.
+func TestLXCDeclareSuggestIDAvoidsAVMIDHeldByAVM(t *testing.T) {
+	tfDir, _ := scaffoldDirs(t)
+	srv := testutil.New(t, "../testdata", map[string]string{
+		"GET /api2/json/cluster/nextid": "cluster-nextid.json",
+	})
+	point(t, srv.URL)
+
+	if _, _, err := run(t, "vm", "declare", "app-01",
+		"--vmid", "235", "--cores", "2", "--memory", "8192", "--with", "", "--yes"); err != nil {
+		t.Fatalf("app-01 : %v", err)
+	}
+	if _, _, err := run(t, "lxc", "declare", "ct-01",
+		"--suggest-id", "--cores", "1", "--memory", "2048", "--template", "200",
+		"--with", "", "--yes"); err != nil {
+		t.Fatalf("ct-01 : %v", err)
+	}
+
+	d := readDeclaration(t, tfDir)
+	if d.LXCs["ct-01"].VMID != 236 {
+		t.Errorf("ct-01 vmid = %d, want 236 (235 déjà tenu par la VM app-01)", d.LXCs["ct-01"].VMID)
 	}
 }
 

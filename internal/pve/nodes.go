@@ -2,7 +2,9 @@ package pve
 
 import (
 	"context"
+	"fmt"
 	"net/url"
+	"strconv"
 )
 
 // Node is one entry of GET /nodes.
@@ -136,6 +138,28 @@ func (c *Client) ClusterStatus(ctx context.Context) ([]ClusterNode, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+// NextID asks the cluster for the next free vmid — the same counter the web
+// UI reads when it proposes an id in the "Create VM/CT" dialog.
+//
+// GET /cluster/nextid
+//
+// PVE answers `{"data":"235"}` — a STRING, unlike almost every other numeric
+// field this client decodes. Decoding straight into an int is the "obvious"
+// simplification a future reader will be tempted to make, and it is wrong: it
+// fails on every real answer, not just an edge case. TestNextIDDecodesString
+// pins the string form down so that "fix" breaks a test instead of prod.
+func (c *Client) NextID(ctx context.Context) (int, error) {
+	var raw string
+	if err := c.get(ctx, epNextID, nil, nil, &raw); err != nil {
+		return 0, err
+	}
+	id, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("/cluster/nextid a répondu %q, pas un identifiant entier", raw)
+	}
+	return id, nil
 }
 
 // Permissions reads the effective privileges of the authenticated identity,
