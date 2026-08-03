@@ -59,6 +59,53 @@ func TestLXCDeclareCoexistsWithVMs(t *testing.T) {
 	}
 }
 
+// La symétrie du contrôle de vmid n'est pas gratuite : elle se vérifie dans
+// l'autre sens. Une VM 220 interdit un conteneur 220, l'espace de vmid Proxmox
+// étant unique.
+func TestLXCDeclareRefusesAVMIDHeldByAVM(t *testing.T) {
+	scaffoldDirs(t)
+
+	if _, _, err := run(t, "vm", "declare", "app-01",
+		"--vmid", "220", "--cores", "2", "--memory", "8192", "--with", "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := run(t, "lxc", "declare", "ct-01",
+		"--vmid", "220", "--cores", "1", "--memory", "2048", "--template", "200",
+		"--with", "", "--yes")
+	if err == nil {
+		t.Fatal("un vmid déjà tenu par une VM doit être refusé")
+	}
+	// « la vm » et pas « vm » seul : le message contient déjà « vmid », donc
+	// une sous-chaîne trop courte passerait sans rien prouver.
+	for _, want := range []string{"220", "app-01", "la vm"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("le message doit nommer %q : %v", want, err)
+		}
+	}
+}
+
+// Même faux positif à éviter que côté VM : un conteneur qui se redéclare avec
+// SON vmid ne se heurte pas à lui-même.
+func TestLXCDeclareAllowsRedeclaringItsOwnVMID(t *testing.T) {
+	tfDir, _ := scaffoldDirs(t)
+
+	if _, _, err := run(t, "lxc", "declare", "ct-01",
+		"--vmid", "221", "--cores", "1", "--memory", "2048", "--template", "200",
+		"--with", "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := run(t, "lxc", "declare", "ct-01", "--memory", "4096", "--yes"); err != nil {
+		t.Fatalf("redimensionnement refusé à tort : %v", err)
+	}
+	if _, _, err := run(t, "lxc", "declare", "ct-01", "--vmid", "221", "--yes"); err != nil {
+		t.Fatalf("redéclarer le même vmid sur la même entrée doit passer : %v", err)
+	}
+	if ct := readDeclaration(t, tfDir).LXCs["ct-01"]; ct.Memory != 4096 || ct.VMID != 221 {
+		t.Errorf("déclaration = %+v", ct)
+	}
+}
+
 // --template is mandatory at creation: there is no shared default ctid to
 // clone from, unlike a VM's var.template_vm_id.
 func TestLXCDeclareRequiresTemplateOnCreation(t *testing.T) {

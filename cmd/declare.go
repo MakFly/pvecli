@@ -112,6 +112,15 @@ func runDeclare(cmd *cobra.Command, name string, o *declareOpts) error {
 		return fmt.Errorf("« %s » n'est pas dans la déclaration — rien à retirer", name)
 	}
 
+	// A vmid is unique across the whole cluster, VMs and containers together.
+	// Refusing here is the difference between a clear message and an opaque
+	// failure at `terraform apply`. --remove claims no vmid, so it is skipped.
+	if after != nil {
+		if owner, kind, taken := decl.VMIDOwner(after.VMID, name, iac.KindVM); taken {
+			return vmidTaken(after.VMID, owner, kind)
+		}
+	}
+
 	changes := iac.Diff(before, after)
 	errW := cmd.ErrOrStderr()
 	path := iac.DeclarationPath(eff.IaC.TerraformDir)
@@ -340,6 +349,19 @@ func promptMissingVMFields(cmd *cobra.Command, vm *iac.VM, f *pflag.FlagSet) err
 		}
 	}
 	return nil
+}
+
+// vmidTaken is the refusal both declare commands share. It names the kind of
+// the owner, not just its name: "déjà pris par app-01" would leave the operator
+// looking for a VM that is in fact a container.
+func vmidTaken(vmid int, owner, kind string) error {
+	held := "la vm"
+	if kind == iac.KindLXC {
+		held = "le lxc"
+	}
+	return &exitError{code: 2, msg: fmt.Sprintf(
+		"vmid %d est déjà pris par %s « %s » — un vmid Proxmox est unique, VM et LXC confondus",
+		vmid, held, owner)}
 }
 
 func plural(n int, one, many string) string {

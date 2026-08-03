@@ -159,6 +159,59 @@ func (d *Declaration) Save(dir string) error {
 	return os.Rename(tmp.Name(), path)
 }
 
+// KindVM and KindLXC name the two kinds of guest a vmid can belong to. They are
+// constants because the call sites, the refusal message and the tests all read
+// them: a bare "vm" literal in three places drifts without anyone noticing.
+const (
+	KindVM  = "vm"
+	KindLXC = "lxc"
+)
+
+// VMIDOwner tells which already-declared guest holds vmid. Proxmox has ONE vmid
+// namespace for QEMU and LXC together -- a VM 220 and a container 220 cannot
+// coexist -- and the declaration is the only place that clash can be named
+// before `terraform apply` reports it as an opaque API error.
+//
+// The exception is the (name, kind) PAIR, not the name alone: VMs and LXCs are
+// two separate maps and may legally hold the same key, so skipping by name
+// would let `vm declare app-01 --vmid 300` slip past an LXC named app-01
+// already holding 300 -- exactly the cross-type collision this exists to catch.
+//
+// Both maps are scanned in sorted order. A hand-edited file can already hold
+// the same vmid twice, and Go's random map iteration would then make the
+// refusal name a different owner on each run.
+func (d *Declaration) VMIDOwner(vmid int, exceptName, exceptKind string) (owner, kind string, ok bool) {
+	for _, name := range sortedKeys(d.VMs) {
+		if name == exceptName && exceptKind == KindVM {
+			continue
+		}
+		if d.VMs[name].VMID == vmid {
+			return name, KindVM, true
+		}
+	}
+	for _, name := range sortedKeys(d.LXCs) {
+		if name == exceptName && exceptKind == KindLXC {
+			continue
+		}
+		if d.LXCs[name].VMID == vmid {
+			return name, KindLXC, true
+		}
+	}
+	return "", "", false
+}
+
+// sortedKeys works on a nil map too, which is what makes VMIDOwner safe on a
+// zero-value Declaration -- LoadDeclaration guards against nil maps, a struct
+// literal does not.
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Validate refuses a declaration the module could not use, with the message
 // that names the real mistake.
 func (vm VM) Validate(name string) error {

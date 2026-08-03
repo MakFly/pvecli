@@ -101,6 +101,14 @@ func runLXCDeclare(cmd *cobra.Command, name string, o *lxcDeclareOpts) error {
 		return fmt.Errorf("« %s » n'est pas dans la déclaration — rien à retirer", name)
 	}
 
+	// Same single vmid namespace as the VM side -- a container 220 and a VM 220
+	// cannot coexist, and this is the last place to say so cheaply.
+	if after != nil {
+		if owner, kind, taken := decl.VMIDOwner(after.VMID, name, iac.KindLXC); taken {
+			return vmidTaken(after.VMID, owner, kind)
+		}
+	}
+
 	changes := iac.DiffLXC(before, after)
 	errW := cmd.ErrOrStderr()
 	path := iac.DeclarationPath(eff.IaC.TerraformDir)

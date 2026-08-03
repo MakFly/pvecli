@@ -126,6 +126,72 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+// Proxmox n'a qu'un seul espace de vmid : une VM 220 et un conteneur 220 ne
+// peuvent pas coexister. VMIDOwner est ce qui permet de le dire avant que
+// « terraform apply » ne le découvre contre l'API.
+func TestVMIDOwner(t *testing.T) {
+	// Une VM et un LXC portent ici le MÊME nom app-01 : rien ne l'interdit,
+	// VMs et LXCs sont deux maps distinctes. C'est le cas qui discrimine une
+	// exclusion sur la paire (nom, type) d'une exclusion sur le nom seul.
+	full := &Declaration{
+		VMs:  map[string]VM{"app-01": {VMID: 220}, "app-02": {VMID: 221}},
+		LXCs: map[string]LXC{"app-01": {VMID: 300}, "ct-01": {VMID: 301}},
+	}
+
+	cases := []struct {
+		name       string
+		decl       *Declaration
+		vmid       int
+		exceptName string
+		exceptKind string
+		wantOwner  string
+		wantKind   string
+		wantOK     bool
+	}{
+		{"vmid libre", full, 999, "", "", "", "", false},
+		{"pris par une vm", full, 221, "", "", "app-02", KindVM, true},
+		{"pris par un lxc", full, 301, "", "", "ct-01", KindLXC, true},
+		{"une vm ne se heurte pas à elle-même", full, 220, "app-01", KindVM, "", "", false},
+		{"un lxc ne se heurte pas à lui-même", full, 301, "ct-01", KindLXC, "", "", false},
+		// Le cas L2 : app-01 côté VM déclare 300, déjà tenu par le LXC app-01.
+		// Une exclusion sur le nom seul laisserait passer la collision.
+		{"la vm app-01 se heurte au lxc app-01", full, 300, "app-01", KindVM, "app-01", KindLXC, true},
+		{"le lxc app-01 se heurte à la vm app-01", full, 220, "app-01", KindLXC, "app-01", KindVM, true},
+		// Quasi-collisions d'exclusion : bon nom, mauvais type, et l'inverse.
+		{"bon nom mauvais type", full, 221, "app-02", KindLXC, "app-02", KindVM, true},
+		{"mauvais nom bon type", full, 221, "app-01", KindVM, "app-02", KindVM, true},
+		// LoadDeclaration protège les maps du nil, un littéral de struct non :
+		// VMIDOwner doit tenir sur une Declaration à zéro.
+		{"déclaration à zéro", &Declaration{}, 220, "app-01", KindVM, "", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			owner, kind, ok := tc.decl.VMIDOwner(tc.vmid, tc.exceptName, tc.exceptKind)
+			if ok != tc.wantOK {
+				t.Fatalf("ok = %t, attendu %t (owner %q, kind %q)", ok, tc.wantOK, owner, kind)
+			}
+			if owner != tc.wantOwner || kind != tc.wantKind {
+				t.Errorf("owner/kind = %q/%q, attendu %q/%q", owner, kind, tc.wantOwner, tc.wantKind)
+			}
+		})
+	}
+}
+
+// Un fichier édité à la main peut tenir deux fois le même vmid ; l'ordre
+// aléatoire des maps Go ferait alors changer le propriétaire nommé à chaque
+// exécution, et le message d'erreur clignoterait.
+func TestVMIDOwnerIsDeterministic(t *testing.T) {
+	d := &Declaration{VMs: map[string]VM{
+		"app-03": {VMID: 220}, "app-01": {VMID: 220}, "app-02": {VMID: 220},
+	}}
+	for i := 0; i < 20; i++ {
+		owner, _, ok := d.VMIDOwner(220, "", "")
+		if !ok || owner != "app-01" {
+			t.Fatalf("tour %d : owner = %q (ok=%t), attendu app-01 à chaque fois", i, owner, ok)
+		}
+	}
+}
+
 func TestSetTagsSortsAndKeepsTheOwnership(t *testing.T) {
 	vm := VM{}
 	vm.SetTags([]string{"svc_postgresql", "svc_docker"})

@@ -108,9 +108,15 @@ func TestDeclareRemovesAnEntry(t *testing.T) {
 func TestDeclareKeepsTheOtherVMs(t *testing.T) {
 	tfDir, _ := scaffoldDirs(t)
 
-	for _, name := range []string{"app-01", "app-02"} {
-		if _, _, err := run(t, "vm", "declare", name,
-			"--vmid", "220", "--cores", "2", "--memory", "8192", "--with", "", "--yes"); err != nil {
+	// Deux vmid distincts : un vmid Proxmox est unique, et le vmid n'est ici
+	// qu'une donnée incidente — ce que ce test vérifie, c'est que retirer
+	// app-01 n'emporte pas app-02.
+	for _, guest := range []struct{ name, vmid string }{
+		{"app-01", "220"},
+		{"app-02", "221"},
+	} {
+		if _, _, err := run(t, "vm", "declare", guest.name,
+			"--vmid", guest.vmid, "--cores", "2", "--memory", "8192", "--with", "", "--yes"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -120,6 +126,118 @@ func TestDeclareKeepsTheOtherVMs(t *testing.T) {
 	d := readDeclaration(t, tfDir)
 	if _, ok := d.VMs["app-02"]; !ok {
 		t.Error("retirer app-01 a emporté app-02")
+	}
+}
+
+// Proxmox n'a qu'un seul espace de vmid : un conteneur 221 interdit une VM 221.
+// Sans ce refus, la collision ne sortirait qu'au « terraform apply », contre
+// l'API, sous une forme illisible.
+func TestDeclareRefusesAVMIDHeldByAnLXC(t *testing.T) {
+	scaffoldDirs(t)
+
+	if _, _, err := run(t, "lxc", "declare", "ct-01",
+		"--vmid", "221", "--cores", "1", "--memory", "2048", "--template", "200",
+		"--with", "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := run(t, "vm", "declare", "app-01",
+		"--vmid", "221", "--cores", "2", "--memory", "8192", "--with", "", "--yes")
+	if err == nil {
+		t.Fatal("un vmid déjà tenu par un LXC doit être refusé")
+	}
+	// « le lxc » et pas « lxc » seul : le message contient déjà « vmid », donc
+	// une sous-chaîne trop courte passerait sans rien prouver.
+	for _, want := range []string{"221", "ct-01", "le lxc"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("le message doit nommer %q : %v", want, err)
+		}
+	}
+}
+
+// Le déplacement d'un vmid est aussi une collision : le chemin de mise à jour
+// doit être gardé comme celui de création.
+func TestDeclareRefusesMovingOntoATakenVMID(t *testing.T) {
+	scaffoldDirs(t)
+
+	if _, _, err := run(t, "vm", "declare", "app-01",
+		"--vmid", "220", "--cores", "2", "--memory", "8192", "--with", "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := run(t, "lxc", "declare", "ct-01",
+		"--vmid", "221", "--cores", "1", "--memory", "2048", "--template", "200",
+		"--with", "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := run(t, "vm", "declare", "app-01", "--vmid", "221", "--yes")
+	if err == nil {
+		t.Fatal("déplacer app-01 sur le vmid du conteneur doit être refusé")
+	}
+	if !strings.Contains(err.Error(), "ct-01") {
+		t.Errorf("le message doit nommer le propriétaire : %v", err)
+	}
+}
+
+// Le faux positif à éviter : une entrée qui se redéclare avec SON vmid ne se
+// heurte pas à elle-même, sinon tout redimensionnement serait refusé.
+func TestDeclareAllowsRedeclaringItsOwnVMID(t *testing.T) {
+	tfDir, _ := scaffoldDirs(t)
+
+	if _, _, err := run(t, "vm", "declare", "app-01",
+		"--vmid", "220", "--cores", "2", "--memory", "8192", "--with", "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := run(t, "vm", "declare", "app-01", "--memory", "16384", "--yes"); err != nil {
+		t.Fatalf("redimensionnement refusé à tort : %v", err)
+	}
+	if _, _, err := run(t, "vm", "declare", "app-01", "--vmid", "220", "--yes"); err != nil {
+		t.Fatalf("redéclarer le même vmid sur la même entrée doit passer : %v", err)
+	}
+	if vm := readDeclaration(t, tfDir).VMs["app-01"]; vm.Memory != 16384 || vm.VMID != 220 {
+		t.Errorf("déclaration = %+v", vm)
+	}
+}
+
+// Un retrait ne revendique aucun vmid : le contrôle ne doit pas s'y appliquer,
+// alors même que le vmid de l'entrée est présent dans la déclaration.
+func TestDeclareRemoveIsNotBlockedByTheVMIDCheck(t *testing.T) {
+	tfDir, _ := scaffoldDirs(t)
+
+	if _, _, err := run(t, "vm", "declare", "app-01",
+		"--vmid", "220", "--cores", "2", "--memory", "8192", "--with", "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := run(t, "vm", "declare", "app-01", "--remove", "--yes"); err != nil {
+		t.Fatalf("--remove refusé à tort : %v", err)
+	}
+	if _, ok := readDeclaration(t, tfDir).VMs["app-01"]; ok {
+		t.Error("app-01 est toujours déclarée après --remove")
+	}
+}
+
+// La ligne de base sans faux positif : deux invités à des vmid différents se
+// déclarent tous les deux, quel que soit leur type.
+func TestDeclareAcceptsDistinctVMIDs(t *testing.T) {
+	tfDir, _ := scaffoldDirs(t)
+
+	if _, _, err := run(t, "vm", "declare", "app-01",
+		"--vmid", "220", "--cores", "2", "--memory", "8192", "--with", "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := run(t, "vm", "declare", "app-02",
+		"--vmid", "222", "--cores", "2", "--memory", "8192", "--with", "", "--yes"); err != nil {
+		t.Fatalf("un vmid libre doit passer : %v", err)
+	}
+	if _, _, err := run(t, "lxc", "declare", "ct-01",
+		"--vmid", "221", "--cores", "1", "--memory", "2048", "--template", "200",
+		"--with", "", "--yes"); err != nil {
+		t.Fatalf("un vmid libre doit passer : %v", err)
+	}
+
+	d := readDeclaration(t, tfDir)
+	if len(d.VMs) != 2 || len(d.LXCs) != 1 {
+		t.Errorf("déclaration = %d vms, %d lxcs", len(d.VMs), len(d.LXCs))
 	}
 }
 
