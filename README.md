@@ -193,11 +193,20 @@ For a heads-up at every new terminal, add to `~/.zshrc`:
   source /path/to/pvecli/scripts/shell/update-notify.zsh
 ```
 
-It runs `pvecli update check --notify` in the background: silent unless an
-update exists, never slows down shell startup, never touches the network more
-than once every 24h (`$XDG_CACHE_HOME/pvecli/update-check.json`), and stays
-silent for a locally-built (`dev`) binary — see `scripts/shell/update-notify.zsh`
-for why the backgrounding is written the way it is.
+The snippet makes two separate calls, on purpose — one command cannot both
+answer the prompt instantly and be allowed to wait on the network:
+
+- `pvecli update check --notify` runs in the **foreground**: it only ever
+  reads the 24h cache (`$XDG_CACHE_HOME/pvecli/update-check.json`), never the
+  network, so it can never block the prompt. Silent unless an update is
+  already known, and silent for a locally-built (`dev`) binary.
+- `pvecli update check --refresh` runs **detached in the background**: it is
+  the one allowed to reach GitHub (2s timeout), and it never prints anything,
+  success or failure — it only updates the cache for the *next* terminal.
+
+The trade-off is deliberate: the notification is always one terminal behind
+the truth. See `scripts/shell/update-notify.zsh` for why the backgrounding
+itself is written the way it is (avoiding zsh's own job-control noise).
 
 Only `linux/amd64` and `darwin/arm64` are published. Anywhere else, build from
 source — Go 1.26+:

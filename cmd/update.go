@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/spf13/cobra"
 )
 
@@ -51,7 +52,7 @@ celle du nœud PVE (voir « pvecli version » pour cette dernière).`,
 }
 
 func newUpdateCheckCmd() *cobra.Command {
-	var notify, force bool
+	var notify, refresh, force bool
 
 	c := &cobra.Command{
 		Use:   "check",
@@ -68,61 +69,123 @@ dernière release publiée ; le signaler comme périmé serait un faux positif
 quotidien, donc cette commande s'abstient totalement pour lui — y compris de
 tout appel réseau.
 
-La réponse est mise en cache 24h. C'est ce qui permet à --notify d'être
-appelée à chaque ouverture de terminal sans marteler l'API GitHub.
+La réponse est mise en cache 24h. Sans drapeau, cette commande peut lire ET
+écrire ce cache (elle est appelée par un humain qui attend une réponse).
 
-  --notify   silencieux sauf si une mise à jour existe ; toujours code 0,
-             même hors ligne. C'est le mode que le snippet zsh appelle.
-  --force    ignore le cache et refait l'appel réseau, pour tester à la main.`,
+  --notify    LECTURE SEULE — n'ouvre jamais de connexion réseau, même si le
+              cache est absent ou périmé. Silencieux sauf si une mise à jour
+              est déjà connue ; toujours code 0. C'est le mode que le snippet
+              zsh imprime au premier plan, avant le prompt.
+  --refresh   ÉCRITURE SEULE — ne parle jamais à l'humain (aucune sortie,
+              jamais, y compris en erreur) ; ne fait que rafraîchir le cache
+              si son TTL est dépassé. C'est le mode que le snippet zsh lance
+              en arrière-plan, pour la PROCHAINE ouverture de terminal.
+  --force     ignore le TTL du cache et refait l'appel réseau. Incompatible
+              avec --notify, qui ne va jamais au réseau ; combine-le avec
+              --refresh pour forcer un rafraîchissement à la main.
+
+--notify et --refresh sont volontairement deux commandes différentes, jamais
+une seule : une commande qui doit à la fois répondre instantanément à un
+humain ET pouvoir attendre 2s sur le réseau ne peut pas tenir les deux
+promesses en même temps sans imprimer sa réponse de façon asynchrone — et une
+ligne qui s'affiche after-coup au milieu d'une saisie en cours est pire que
+ce que ce découpage évite.`,
 		Args: usage(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runUpdateCheck(cmd, notify, force)
+			if notify && refresh {
+				return &exitError{code: pve.ExitUsage,
+					msg: "--notify et --refresh sont incompatibles : --notify ne lit que le cache, --refresh ne parle qu'au réseau"}
+			}
+			if notify && force {
+				return &exitError{code: pve.ExitUsage,
+					msg: "--force n'a pas de sens avec --notify (qui ne va jamais au réseau) : utilise --refresh --force"}
+			}
+			return runUpdateCheck(cmd, notify, refresh, force)
 		},
 	}
 
 	c.Flags().BoolVar(&notify, "notify", false,
-		"silencieux sauf si une mise à jour existe (pour un .zshrc) ; toujours code 0")
+		"lecture seule du cache, jamais de réseau (pour un .zshrc, au premier plan)")
+	c.Flags().BoolVar(&refresh, "refresh", false,
+		"rafraîchit le cache si périmé, aucune sortie jamais (pour un .zshrc, en arrière-plan)")
 	c.Flags().BoolVar(&force, "force", false, "ignore le TTL du cache et refait l'appel réseau")
 	return c
 }
 
-func runUpdateCheck(cmd *cobra.Command, notify, force bool) error {
+func runUpdateCheck(cmd *cobra.Command, notify, refresh, force bool) error {
 	installed := cmd.Root().Version
 	out := cmd.OutOrStdout()
 
 	// A binary built locally is not a release, and comparing it to one always
 	// loses: this is the exact rule install.sh already applies for
 	// PVECLI_ONLY_IF_NEWER, reproduced here so the two never disagree. No
-	// network call, no cache write — there is nothing here worth remembering.
+	// network call, no cache write, no output in any mode — there is nothing
+	// here worth remembering or reporting.
 	if installed == "dev" {
-		if !notify {
+		if !notify && !refresh {
 			fmt.Fprintln(out, "pvecli compilé localement (dev) — vérification désactivée")
 		}
 		return nil
 	}
 
+	// --refresh only ever touches the cache, never the human. Its output is
+	// always empty, even on a network failure: it is meant to run detached in
+	// the background, and a background job that writes to a terminal the user
+	// is typing into is the exact bug this split exists to close.
+	if refresh {
+		_, _ = resolveLatestTag(cmd.Context(), force)
+		return nil
+	}
+
+	// --notify never opens a socket: it is the branch a new shell prompt
+	// waits on, so it may only ever be as slow as reading one file. This
+	// means it can lag one terminal behind the truth — it shows whatever
+	// --refresh last recorded, not whatever GitHub says right now. That lag
+	// is the deliberate price of never blocking a prompt; --refresh (run in
+	// background by the same snippet) is what keeps the lag at "one tick",
+	// not "forever".
+	if notify {
+		c, err := readFreshUpdateCache()
+		if err != nil || c.LatestTag == "" || c.LatestTag == installed {
+			return nil
+		}
+		fmt.Fprintf(out, "%s → %s disponible : https://github.com/%s/releases/latest\n", installed, c.LatestTag, updateRepo)
+		return nil
+	}
+
+	// Plain human mode: free to reach the network, exactly as before.
 	tag, fetchErr := resolveLatestTag(cmd.Context(), force)
 
 	if tag == "" {
-		if !notify {
-			reason := "cause inconnue"
-			if fetchErr != nil {
-				reason = fetchErr.Error()
-			}
-			fmt.Fprintf(out, "vérification impossible : %s\n", reason)
+		reason := "cause inconnue"
+		if fetchErr != nil {
+			reason = fetchErr.Error()
 		}
+		fmt.Fprintf(out, "vérification impossible : %s\n", reason)
 		return nil
 	}
 
 	if tag == installed {
-		if !notify {
-			fmt.Fprintf(out, "pvecli est à jour (%s)\n", installed)
-		}
+		fmt.Fprintf(out, "pvecli est à jour (%s)\n", installed)
 		return nil
 	}
 
 	fmt.Fprintf(out, "%s → %s disponible : https://github.com/%s/releases/latest\n", installed, tag, updateRepo)
 	return nil
+}
+
+// readFreshUpdateCache reads the cache and rejects it if its TTL has expired.
+// It never touches the network — this is the one function --notify is
+// allowed to call.
+func readFreshUpdateCache() (*updateCheckCache, error) {
+	c, err := readUpdateCache(updateCachePath())
+	if err != nil {
+		return nil, err
+	}
+	if time.Since(c.CheckedAt) >= updateCheckTTL {
+		return nil, fmt.Errorf("cache périmé")
+	}
+	return c, nil
 }
 
 // resolveLatestTag serves the 24h cache when it is fresh, and reaches GitHub
@@ -137,16 +200,14 @@ func runUpdateCheck(cmd *cobra.Command, notify, force bool) error {
 // ouverture de terminal, ce qui est exactement le martèlement que ce cache
 // existe pour éviter.
 func resolveLatestTag(ctx context.Context, force bool) (tag string, fetchErr error) {
-	path := updateCachePath()
-
 	if !force {
-		if c, err := readUpdateCache(path); err == nil && time.Since(c.CheckedAt) < updateCheckTTL {
+		if c, err := readFreshUpdateCache(); err == nil {
 			return c.LatestTag, nil
 		}
 	}
 
 	tag, fetchErr = fetchLatestTag(ctx)
-	writeUpdateCache(path, &updateCheckCache{CheckedAt: time.Now(), LatestTag: tag})
+	writeUpdateCache(updateCachePath(), &updateCheckCache{CheckedAt: time.Now(), LatestTag: tag})
 	return tag, fetchErr
 }
 
