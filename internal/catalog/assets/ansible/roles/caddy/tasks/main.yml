@@ -105,6 +105,34 @@
     cmd: caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
   changed_when: false
 
+# `caddy validate` n'est PAS une analyse syntaxique : il PROVISIONNE les
+# modules de la configuration. Un fragment qui déclare « log { output file
+# /var/log/caddy/x.log } » fait donc ouvrir — et créer — ce fichier par la
+# validation elle-même. Or ce rôle tourne en `become: true` : le fichier naît
+# root:root 0600, et le service, qui tourne sous l'utilisateur `caddy`, ne peut
+# plus l'ouvrir. Le reload échoue, et surtout le prochain DÉMARRAGE échoue —
+# c'est-à-dire que la tâche censée protéger le proxy est celle qui le casse.
+#
+# Constaté en vrai sur edge-01 le 03-08-2026, à la main : « caddy validate »
+# lancé en root, puis « systemctl reload caddy » → « open
+# /var/log/caddy/hardware-fr.log: permission denied ». Le service est resté
+# debout uniquement parce qu'un reload raté conserve l'ancienne configuration.
+#
+# Rendre les journaux à `caddy` ici, APRÈS la validation et AVANT toute tâche
+# capable de démarrer le service, referme le trou quel que soit le fragment
+# déposé — sans que le rôle ait à connaître les chemins qu'un projet choisit.
+# Valider sous `caddy` plutôt que corriger après serait plus direct, mais le
+# fichier candidat du module `template` n'est lisible que par root : la
+# validation ne peut pas changer d'utilisateur sans cesser de valider.
+- name: Rendre à Caddy les journaux que la validation a pu créer en root
+  ansible.builtin.file:
+    path: /var/log/caddy
+    state: directory
+    owner: caddy
+    group: caddy
+    mode: "0750"
+    recurse: true
+
 - name: Démarrer Caddy au boot
   ansible.builtin.systemd_service:
     name: caddy

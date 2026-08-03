@@ -29,6 +29,24 @@
 	# en HTTP simple sur le loopback. Un défi ACME ici bouclerait en échec
 	# sur un nom que ce nœud ne sert jamais publiquement.
 	auto_https off
+	servers {
+		# Sur un bord, le client direct de Caddy est TOUJOURS le cloudflared
+		# local : sans cette ligne, « remote_ip » et « client_ip » valent
+		# 127.0.0.1 dans chaque entrée de journal d'accès, pour toutes les
+		# requêtes et pour tous les projets — un journal qui n'identifie
+		# personne. La vraie adresse est dans X-Forwarded-For, que Caddy
+		# refuse de croire tant que l'émetteur n'est pas déclaré de confiance.
+		#
+		# Ne déclarer QUE la loopback est le point important : élargir cette
+		# liste reviendrait à croire un X-Forwarded-For fourni par n'importe
+		# quelle machine du LAN, donc à laisser usurper une IP cliente dans
+		# les journaux et dans toute décision qui s'y appuierait.
+		#
+		# Cela relève du rôle, pas d'un fragment de projet : un fragment ne
+		# peut pas porter d'option globale, et s'il pouvait, chaque projet
+		# redéclarerait — puis divergerait — la même confiance.
+		trusted_proxies static 127.0.0.1/32 ::1/128
+	}
 }
 
 import {{ pvecli_caddy_conf_dir }}/*.caddy
