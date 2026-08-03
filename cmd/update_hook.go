@@ -97,6 +97,14 @@ func shellRCFile(home, shellPath, zdotdir, override string) string {
 	}
 }
 
+// shellHookSourceLine is the one line of the block that actually does
+// something. It is written by shellHookBlock and read back by runInstallHook
+// to tell a current block from a stale one, so the two must not drift: they
+// share this function rather than each spelling the line out.
+func shellHookSourceLine(snippetPath string) string {
+	return fmt.Sprintf("[ -f %s ] && . %s", snippetPath, snippetPath)
+}
+
 // shellHookBlock is the exact block appended to a startup file: a leading
 // blank line for separation, the two markers, and the guarded source line.
 // Wording kept close to scripts/shell/install-hook.sh's, which it replaces.
@@ -107,7 +115,7 @@ func shellHookBlock(snippetPath string) string {
 		"# Prévient à l'ouverture d'un terminal qu'une release plus récente existe.",
 		"# Ne fait AUCUN appel réseau en premier plan. Retrait :",
 		"#   pvecli update install-hook --uninstall",
-		fmt.Sprintf("[ -f %s ] && . %s", snippetPath, snippetPath),
+		shellHookSourceLine(snippetPath),
 		shellHookEnd,
 		"",
 	}
@@ -261,20 +269,34 @@ func runInstallHook(out io.Writer, rc, snippetPath string) error {
 		return fmt.Errorf("écriture de %s : %w", snippetPath, err)
 	}
 
-	already, err := rcHasHookMarker(rc)
-	if err != nil {
-		return err
-	}
-	if already {
-		_, _ = fmt.Fprintf(out, "· notification déjà câblée dans %s\n", rc)
-		return nil
-	}
-
 	existing, err := os.ReadFile(rc)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("lecture de %s : %w", rc, err)
 	}
-	newContent := string(existing) + shellHookBlock(snippetPath)
+
+	// Idempotence, mais pas naïve : la présence du marqueur ne suffit pas.
+	//
+	// Mesuré le 03-08-2026, une heure après avoir posé le bloc à la main. Le
+	// snippet a changé d'emplacement dans le dépôt ; le bloc, lui, est resté à
+	// pointer sur l'ancien chemin. Sa garde `[ -f … ]` a fait exactement son
+	// travail — ne rien casser — et le résultat a été une notification
+	// silencieusement morte, avec un `install-hook` qui répondait « déjà
+	// câblée » sans rien vérifier. Encore une fois : le bloc était là, et il
+	// ne faisait rien.
+	//
+	// On compare donc au CHEMIN, pas au marqueur. Un bloc qui source autre
+	// chose que la cible courante est périmé et se fait remplacer.
+	previous := string(existing)
+	if strings.Contains(previous, shellHookBegin) {
+		if strings.Contains(previous, shellHookSourceLine(snippetPath)) {
+			_, _ = fmt.Fprintf(out, "· notification déjà câblée dans %s\n", rc)
+			return nil
+		}
+		previous = removeShellHookBlock(previous)
+		_, _ = fmt.Fprintf(out, "· bloc obsolète remplacé dans %s\n", rc)
+	}
+
+	newContent := previous + shellHookBlock(snippetPath)
 	if err := writeFileReplacingContent(rc, []byte(newContent), 0o644); err != nil {
 		return err
 	}
@@ -316,17 +338,4 @@ func runUninstallHook(out io.Writer, rc, snippetPath string) error {
 	}
 	_, _ = fmt.Fprintf(out, "✓ bloc pvecli retiré de %s\n", rc)
 	return nil
-}
-
-// rcHasHookMarker reports whether rc already carries the block, without
-// caring whether rc exists at all yet.
-func rcHasHookMarker(rc string) (bool, error) {
-	content, err := os.ReadFile(rc)
-	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("lecture de %s : %w", rc, err)
-	}
-	return strings.Contains(string(content), shellHookBegin), nil
 }

@@ -178,6 +178,51 @@ func TestInstallHookIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestInstallHookReplacesAStaleBlock pins a failure measured on 2026-08-03,
+// an hour after a block had been wired by hand: the snippet moved inside the
+// repository, the block kept pointing at the old path, and its `[ -f … ]`
+// guard did exactly its job — nothing broke, and the notification was
+// silently dead. install-hook answered "déjà câblée" without ever checking
+// what the block actually sourced.
+//
+// So idempotence is keyed on the PATH, not on the marker: a block sourcing
+// anything other than the current target is stale and gets replaced. Without
+// this, the marker becomes a promise the block no longer keeps.
+func TestInstallHookReplacesAStaleBlock(t *testing.T) {
+	home := t.TempDir()
+	resetHookEnv(t, home, "/bin/zsh")
+
+	rc := filepath.Join(home, ".zshrc")
+	stale := "# mine\nexport KEEP=1\n" + shellHookBlock("/gone/update-notify.sh")
+	if err := os.WriteFile(rc, []byte(stale), 0o644); err != nil {
+		t.Fatalf("seeding a stale rc file: %v", err)
+	}
+
+	if _, _, err := run(t, "update", "install-hook"); err != nil {
+		t.Fatalf("install-hook: %v", err)
+	}
+
+	content, err := os.ReadFile(rc)
+	if err != nil {
+		t.Fatalf("reading .zshrc: %v", err)
+	}
+	got := string(content)
+
+	if strings.Contains(got, "/gone/update-notify.sh") {
+		t.Errorf("stale source line survived — the block still points at a file that no longer exists:\n%s", got)
+	}
+	want := shellHookSourceLine(filepath.Join(home, ".local", "share", "pvecli", shellHookSnippetFileName))
+	if !strings.Contains(got, want) {
+		t.Errorf("rc file does not source the current snippet\nwant line: %s\ngot:\n%s", want, got)
+	}
+	if n := strings.Count(got, shellHookBegin); n != 1 {
+		t.Errorf("BEGIN marker appears %d times, want exactly 1 — a replacement must not stack blocks\n%s", n, got)
+	}
+	if !strings.Contains(got, "export KEEP=1") {
+		t.Errorf("replacing a stale block ate the user's own content:\n%s", got)
+	}
+}
+
 // 5. --uninstall: the block is gone, the user's neighbouring content (before
 // AND after the block) is intact, and the snippet file is removed.
 func TestInstallHookUninstallRemovesBlockAndSnippetKeepsNeighbours(t *testing.T) {
