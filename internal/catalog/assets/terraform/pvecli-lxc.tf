@@ -41,6 +41,19 @@ resource "proxmox_virtual_environment_container" "pvecli" {
   # privilégié, et une décision explicite pour en sortir.
   unprivileged = each.value.unprivileged
 
+  # Docker ne démarre pas dans un conteneur sans « nesting » (cgroups imbriqués)
+  # ni « keyctl » : le démon échoue à l'init du graphdriver, alors que l'apply
+  # Terraform, lui, a réussi. Accordé au seul conteneur qui en a besoin --
+  # « nesting » est un cran de privilège, et l'ouvrir partout annulerait le
+  # défaut non privilégié posé juste au-dessus.
+  # Sur un conteneur déjà en marche, la bascule part en « pending » : PVE ne
+  # hotplug pas « features » et le provider ne le redémarre pas pour autant --
+  # il faut un stop/start pour que Docker démarre enfin.
+  features {
+    nesting = contains(each.value.services, "docker")
+    keyctl  = contains(each.value.services, "docker")
+  }
+
   # Même remarque que pour les VM : ces tags décident quel groupe Ansible
   # reçoit ce conteneur, via « pvecli iac inventory ».
   tags = each.value.tags
