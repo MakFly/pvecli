@@ -28,9 +28,9 @@ func (s SSH) Target() string { return s.User + "@" + s.Host }
 // Look reports whether an ssh client exists at all.
 func (s SSH) Look() error {
 	if _, err := exec.LookPath("ssh"); err != nil {
-		return fmt.Errorf("« ssh » est introuvable dans le PATH.\n\n" +
+		return errors.New("« ssh » est introuvable dans le PATH.\n\n" +
 			"Cette commande modifie un fichier sur le disque du nœud : aucun endpoint de\n" +
-			"l'API PVE n'y donne accès, il faut donc un shell.")
+			"l'API PVE n'y donne accès, il faut donc un shell")
 	}
 	return nil
 }

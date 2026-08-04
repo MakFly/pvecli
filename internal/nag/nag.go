@@ -110,14 +110,14 @@ func apply(ctx context.Context, run Runner, script string) (Report, error) {
 		return rep, fmt.Errorf(
 			"%s est introuvable sur le nœud.\n\n"+
 				"Ce chemin appartient au paquet « proxmox-widget-toolkit » : soit la cible n'est pas\n"+
-				"un nœud PVE, soit le paquet n'y est pas installé.", File)
+				"un nœud PVE, soit le paquet n'y est pas installé", File)
 	case StateUnknown:
 		return rep, fmt.Errorf(
 			"le fichier existe mais ne contient ni le repère de pvecli ni le code attendu :\n"+
 				"  %s\n\n"+
 				"Cette version de PVE (%s) a vraisemblablement déplacé la vérification d'abonnement.\n"+
 				"Je ne patche pas à l'aveugle un fichier de 200 ko. Ouvre-le et vérifie où la\n"+
-				"fonction « checked_command » a atterri, plutôt que de récupérer une interface cassée.",
+				"fonction « checked_command » a atterri, plutôt que de récupérer une interface cassée",
 			anchor, rep.Version)
 	}
 	return rep, nil

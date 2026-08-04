@@ -13,9 +13,8 @@ import (
 // transport, so the sed expressions, the grep tests and the `set -eu` behaviour
 // are all genuinely exercised.
 type fakeNode struct {
-	t       *testing.T
-	dir     string
-	restart int
+	t   *testing.T
+	dir string
 }
 
 func newFakeNode(t *testing.T, content string) *fakeNode {
