@@ -26,7 +26,7 @@ du nœud n'est pas un détail d'affichage, c'est une donnée structurante que
 toutes les autres commandes exigeront.`,
 		Args: usage(cobra.NoArgs),
 	}
-	c.AddCommand(newNodeListCmd(), newNodeShowCmd(), newNodeRebootCmd())
+	c.AddCommand(newNodeListCmd(), newNodeShowCmd(), newNodeRebootCmd(), newNodeNagCmd())
 	return c
 }
 

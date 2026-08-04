@@ -625,6 +625,42 @@ drop across a boot. Privilege is `Sys.PowerMgmt` on `/nodes/{node}`, not
 `Sys.Modify` — a token that can rewrite the node's APT sources still cannot
 power-cycle it.
 
+The **"no valid subscription" dialog** the web UI raises on every login:
+
+```sh
+pvecli node nag status            # reads the node, changes nothing
+pvecli node nag off               # suppresses it, then restarts pveproxy
+pvecli node nag off --dry-run     # prints the exact script that would be sent
+pvecli node nag on                # puts it back
+```
+
+This is the only command in the CLI that does **not** speak to `/api2/json`, and
+that is forced, not sloppy: the dialog comes from
+`/usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js`, a file on the
+node's disk that no REST endpoint exposes whatever the token carries. So it goes
+over your own `ssh` — your `~/.ssh/config`, your agent, your `known_hosts` —
+with `BatchMode`, so a node that will not take the key fails immediately instead
+of prompting for a password inside a pipeline.
+
+The patch is one textual insertion carrying a marker,
+`checked_command: function (orig_cmd) { orig_cmd(); return; /* pvecli:nag-off */`.
+`orig_cmd()` is still called, so the command the user actually clicked still
+runs. Detection looks for that marker and never for a count: the recipe that
+circulates, `grep -c "orig_cmd();"`, returns **2 on a pristine file** — those are
+the function's own legitimate calls — and therefore reports "already patched"
+about a node that is not.
+
+No `.bak` is left and no APT hook is installed, deliberately. A backup restored
+after `apt upgrade` would reinstate a stale widget toolkit, and an APT hook is a
+script that silently rewrites package-owned files forever. `nag on` is the exact
+inverse of `nag off`, and `apt --reinstall install proxmox-widget-toolkit` is the
+escape hatch in every case. The accepted cost: upgrading that package brings the
+dialog back, `nag status` says so, `nag off` replays in a second.
+
+Worth stating plainly: this circumvents a licence check. On a homelab it is
+inconsequential. In production the Community subscription is the clean path, and
+it is what opens the better-tested `pve-enterprise` repository.
+
 ## Configuration
 
 Layered, in decreasing priority: **flags → environment → config file →
