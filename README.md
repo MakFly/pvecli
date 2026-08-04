@@ -286,13 +286,15 @@ Nothing is published that has not been proved, in this order:
    runner), not merely compiled. `-ldflags` that fail to apply produce a
    perfectly valid binary that answers `dev`, and nothing flags it at build
    time;
-3. the checksums are re-confronted with their files;
-4. GitHub attests the provenance — a SHA-256 proves a file has not moved, it
-   says nothing about where it came from.
+3. the checksums are re-confronted with their files.
 
-```sh
-gh attestation verify pvecli_v0.1.0_linux_amd64 --repo MakFly/pvecli
-```
+Build provenance used to be attested here as a fourth step. GitHub has since
+restricted that API to public repositories and to organisation-owned private
+ones, and this repository is neither, so the step was removed rather than left
+to fail every release. What remains is a SHA-256 per binary: it proves a file
+has not been altered, and says nothing about where it came from. If this
+repository ever goes public, `actions/attest-build-provenance` is worth putting
+back.
 
 ### First run
 

@@ -255,8 +255,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # créer la release et y téléverser
-      id-token: write # attestation de provenance
-      attestations: write
     steps:
       - uses: actions/checkout@v5
         with:
@@ -266,15 +264,6 @@ jobs:
         with:
           name: dist
           path: dist
-
-      - name: Attestation de provenance
-        # Lie chaque binaire au commit et au workflow qui l'ont produit. Une
-        # somme SHA-256 prouve qu'un fichier n'a pas bougé ; elle ne dit rien de
-        # d'où il vient. Vérifiable par :
-        #   gh attestation verify pvecli --repo ${{ github.repository }}
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-path: dist/pvecli_*
 
       - name: Release GitHub
         env:
@@ -303,7 +292,6 @@ jobs:
             echo "curl -fsSLO https://github.com/${REPO}/releases/download/${VERSION}/pvecli_${VERSION}_linux_amd64"
             echo "curl -fsSLO https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS"
             echo "sha256sum -c SHA256SUMS --ignore-missing"
-            echo "gh attestation verify pvecli_${VERSION}_linux_amd64 --repo ${REPO}"
             echo "chmod +x pvecli_${VERSION}_linux_amd64"
             echo '```'
             echo
@@ -316,7 +304,6 @@ jobs:
             echo "- recette complète (\`fmt\`, \`lint\`, \`test\`, \`cover\`, compilation croisée)"
             echo "- chaque binaire **exécuté sur sa propre plateforme**, pas seulement compilé"
             echo "- sommes SHA-256 re-confrontées à leurs fichiers"
-            echo "- provenance attestée par GitHub"
           } > "$notes"
 
           # Re-jouer un tag ne doit pas échouer sur « release already exists ».
