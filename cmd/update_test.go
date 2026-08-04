@@ -483,3 +483,51 @@ func releaseHandlerCountingCalls(t *testing.T, tag string, calls *int) *httptest
 		_, _ = w.Write([]byte(`{"tag_name":"` + tag + `"}`))
 	}))
 }
+
+// 21. A cached failure, replayed in human mode, must NAME its cause and point
+// at --force.
+//
+// This is the regression that shipped: resolveLatestTag returned the cached
+// entry as (LatestTag, nil), so a failed check came back as an empty tag with
+// no error, and the command printed "vérification impossible : cause
+// inconnue" — about the one case where the cause is fully known. The operator
+// learned nothing, and above all never learned that --force exists.
+func TestUpdateCheckCachedFailureExplainsItselfAndOffersForce(t *testing.T) {
+	isolateCompletionCache(t)
+	// failIfCalled proves the cache is still doing its job: explaining the
+	// failure must not cost a network call.
+	withGithubAPI(t, failIfCalled(t).URL)
+	writeCacheFile(t, time.Now().Add(-30*time.Minute), "", false)
+
+	stdout, _, err := runUpdate(t, "v0.1.0")
+	if err != nil {
+		t.Fatalf("returned an error: %v", err)
+	}
+	if strings.Contains(stdout, "cause inconnue") {
+		t.Errorf("the cause is known here, yet the message says it is not :\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "--force") {
+		t.Errorf("the message does not mention the way out :\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "30m") {
+		t.Errorf("the message does not say how old the failure is :\n%s", stdout)
+	}
+}
+
+// 22. "cause inconnue" must survive as the last resort, for a genuinely
+// unexplained empty answer. Removing the branch instead of narrowing it would
+// trade one silent case for another.
+func TestUpdateCheckUnexplainedEmptyAnswerStillSaysUnknown(t *testing.T) {
+	isolateCompletionCache(t)
+	// A 200 with no tag_name: fetchLatestTagWithin rejects it, so the reason
+	// comes from the fetch error, not from the cache.
+	withGithubAPI(t, releaseServer(t, "").URL)
+
+	stdout, _, err := runUpdate(t, "v0.1.0")
+	if err != nil {
+		t.Fatalf("returned an error: %v", err)
+	}
+	if !strings.Contains(stdout, "vérification impossible") {
+		t.Errorf("an unexplained empty answer must still be reported :\n%s", stdout)
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/MakFly/pvecli/internal/output"
 	"github.com/MakFly/pvecli/internal/pve"
 	"github.com/spf13/cobra"
 )
@@ -245,11 +246,39 @@ func readFreshUpdateCache() (*updateCheckCache, error) {
 	return c, nil
 }
 
+// cachedFailureError is a failure REPLAYED from the cache, not one that just
+// happened.
+//
+// It exists because the human-readable branch of `update check` used to print
+// "vérification impossible : cause inconnue" in exactly this case, which is
+// the one situation where the cause is perfectly known: a previous attempt
+// failed, and its failure is still within updateCheckFailureTTL. The operator
+// was told nothing, and above all was not told that --force skips the memory
+// and asks GitHub straight away. A message that says "unknown" about something
+// the code knows is worse than no message.
+type cachedFailureError struct {
+	checkedAt time.Time
+}
+
+// Error reuses output.Uptime rather than Duration.String(): the rest of the
+// CLI prints "42m" and "1h 0m", not "42m0s" and "1h0m0s".
+func (e *cachedFailureError) Error() string {
+	return fmt.Sprintf(
+		"un contrôle a échoué il y a %s, et cet échec reste mémorisé %s.\n"+
+			"  « pvecli update check --force » ignore cette mémoire et interroge GitHub tout de suite",
+		output.Uptime(int64(time.Since(e.checkedAt).Seconds())),
+		output.Uptime(int64(updateCheckFailureTTL.Seconds())))
+}
+
 // resolveLatestTag serves the cache when it is fresh for its own TTL (see
 // readFreshUpdateCache), and reaches GitHub otherwise. It never returns an
 // error to a caller that would turn it into a non-zero exit: fetchErr is
 // informational, meant only for the human-readable message in the
 // non-notify path.
+//
+// A cached FAILURE is returned as a cachedFailureError rather than as an empty
+// tag with no error. Both mean "no answer", but only one of them can explain
+// itself, and the caller cannot tell them apart from the tag alone.
 //
 // Point critique : un échec réseau est un état, pas une absence. Le cache est
 // réécrit avec un tag vide et un checked_at frais MÊME QUAND l'appel échoue.
@@ -263,6 +292,9 @@ func readFreshUpdateCache() (*updateCheckCache, error) {
 func resolveLatestTag(ctx context.Context, force bool) (tag string, fetchErr error) {
 	if !force {
 		if c, err := readFreshUpdateCache(); err == nil {
+			if !c.Success {
+				return "", &cachedFailureError{checkedAt: c.CheckedAt}
+			}
 			return c.LatestTag, nil
 		}
 	}
