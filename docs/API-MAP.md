@@ -204,3 +204,35 @@ Les étapes 5 et 6 sont sautées pour une mutation synchrone (réponse sans UPID
 
 Paramètres vérifiés au passage : `shutdown` prend `timeout` et **`forceStop`**
 (S majuscule), lus dans `PVE::API2::Qemu::vm_shutdown`.
+
+## Compatibilité de schéma entre versions PVE (PVX-104)
+
+`scripts/schema-capture.sh` et `scripts/schema-diff.sh` prolongent cette table
+en comparant deux versions de PVE entre elles, plutôt qu'une version contre le
+code. Ils capturent le schéma complet de l'API viewer (chemin, méthode,
+paramètres, énumération, format, valeur par défaut — jamais la description ni
+le HTML) et le diffent. Ce ne sont **pas** des sous-commandes `pvecli` : deux
+outils de développement, dans l'esprit de `scripts/capture.sh`, pas encore
+appelés par la CI ni par un test Go.
+
+```
+make schema-capture-node VERSION=9.2.6          # nœud live, HTTPS
+make schema-capture-archive VERSION=9.0.4        # paquet pve-docs archivé, HTTP
+make schema-diff OLD=docs/schema-snapshots/9.0.4-archive.json \
+                  NEW=docs/schema-snapshots/9.2.6-node.json
+```
+
+Codes de sortie de `schema-diff.sh`, convention `diff(1)`/`grep(1)` : **0**
+comparaison faite, rien retiré ; **1** comparaison faite, au moins un endpoint
+retiré (un résultat, pas une panne) ; **2** comparaison impossible (fichier
+absent, JSON illisible, schéma vide). `schema-capture.sh` ne rend jamais 1 :
+une capture réussit (0) ou échoue (2).
+
+`python3` est requis par ces deux scripts — une dépendance de plus pour
+l'outillage de dev de ce dépôt Go (déjà utilisée par `scripts/capture.sh`).
+Les bundles bruts de l'API viewer (`apidoc.js`, 3-4 Mo chacun) sont mis en
+cache dans `.schema-cache/`, **jamais versionnés** : seul le schéma normalisé
+(quelques centaines de Ko) va dans `docs/schema-snapshots/`. L'archive
+Proxmox (`download.proxmox.com`, en HTTP explicite — HTTPS y répond 401 sur
+ce réseau) ne remonte **pas** au-delà de PVE 7 : les suites plus anciennes
+répondent 404.

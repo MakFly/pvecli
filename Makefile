@@ -26,7 +26,7 @@ NODEPATH ?= /usr/local/bin/$(BINARY)
 #   make install PREFIX=/usr/local   reste possible, avec sudo.
 PREFIX ?= $(HOME)/.local
 
-.PHONY: build test lint fmt cover integration release install install-node uninstall clean capture help
+.PHONY: build test lint fmt cover integration release schema-capture-node schema-capture-archive schema-diff install install-node uninstall clean capture help
 
 build: ## Compile le binaire avec la version injectée au build
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
@@ -82,6 +82,24 @@ release: ## Binaires darwin/arm64 et linux/amd64, statiques, avec leurs sommes
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 		go build -trimpath -ldflags "$(LDFLAGS)" -o dist/$(BINARY)_$(VERSION)_linux_amd64 .
 	@cd dist && shasum -a 256 * > SHA256SUMS && cat SHA256SUMS
+
+# PVX-104 — schéma d'API normalisé, capturé/diffé en dehors du binaire
+# distribué (outillage de dev, comme `capture`, pas une sous-commande
+# `pvecli`). Placées avant `install` : `install` peut échouer légitimement
+# sur `pvecli ai install` quand l'agent local a été personnalisé, et make
+# n'exécute que la cible demandée — mais toute cible ajoutée après `install`
+# dans ce fichier serait facile à manquer en le lisant de haut en bas.
+schema-capture-node: ## Capture le schéma du nœud live — make schema-capture-node VERSION=9.2.6
+	@test -n "$(VERSION)" || { echo "usage: make schema-capture-node VERSION=9.2.6"; exit 2; }
+	@./scripts/schema-capture.sh node "$(VERSION)"
+
+schema-capture-archive: ## Capture un schéma pve-docs archivé — make schema-capture-archive VERSION=9.0.4 [SUITE=trixie]
+	@test -n "$(VERSION)" || { echo "usage: make schema-capture-archive VERSION=9.0.4 [SUITE=trixie]"; exit 2; }
+	@./scripts/schema-capture.sh archive "$(VERSION)" "$(SUITE)"
+
+schema-diff: ## Diff deux schémas normalisés — make schema-diff OLD=docs/schema-snapshots/9.0.4-archive.json NEW=docs/schema-snapshots/9.2.6-node.json
+	@test -n "$(OLD)" && test -n "$(NEW)" || { echo "usage: make schema-diff OLD=... NEW=..."; exit 2; }
+	@./scripts/schema-diff.sh "$(OLD)" "$(NEW)"
 
 install-node: ## Copie le binaire linux sur le nœud et vérifie qu'il s'exécute
 	@test -f dist/$(BINARY)_$(VERSION)_linux_amd64 || { \

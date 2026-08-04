@@ -19,3 +19,8 @@
 # Ancien nom du binaire — un artefact de build macOS avait été versionné par
 # accident (13 Mo). Ignoré pour que le glissement ne se reproduise pas.
 /pvectl
+
+# Bundles JS bruts de l'API viewer PVE, mis en cache par
+# scripts/schema-capture.sh (3-4 Mo par version). Jamais versionnés : seul
+# le schéma normalisé (docs/schema-snapshots/) l'est — PVX-104.
+/.schema-cache/
