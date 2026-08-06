@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/MakFly/pvecli/internal/pve"
-	"github.com/MakFly/pvecli/internal/secret"
+	"github.com/dev-toolings/pvecli/internal/pve"
+	"github.com/dev-toolings/pvecli/internal/secret"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )

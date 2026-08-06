@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MakFly/pvecli/internal/config"
+	"github.com/dev-toolings/pvecli/internal/config"
 )
 
 // Les VMID de cette suite. Bornés haut et bas, et vérifiés : une faute de

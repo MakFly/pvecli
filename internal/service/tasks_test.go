@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/dev-toolings/pvecli/internal/pve"
 )
 
 // fakeTaskAPI answers a scripted sequence of task states, and records which

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/MakFly/pvecli/internal/config"
+	"github.com/dev-toolings/pvecli/internal/config"
 	"github.com/spf13/cobra"
 )
 

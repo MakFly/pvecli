@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/dev-toolings/pvecli/internal/pve"
 )
 
 func newLXCExecCmd() *cobra.Command {

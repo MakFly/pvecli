@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/MakFly/pvecli/internal/iac"
-	"github.com/MakFly/pvecli/internal/output"
-	"github.com/MakFly/pvecli/internal/secret"
+	"github.com/dev-toolings/pvecli/internal/iac"
+	"github.com/dev-toolings/pvecli/internal/output"
+	"github.com/dev-toolings/pvecli/internal/secret"
 )
 
 // connectHarness runs reportConnections over a directory of published outputs,

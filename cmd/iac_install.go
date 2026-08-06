@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/MakFly/pvecli/internal/iac"
+	"github.com/dev-toolings/pvecli/internal/iac"
 	"github.com/spf13/cobra"
 )
 

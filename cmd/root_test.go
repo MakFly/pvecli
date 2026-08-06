@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvecli/internal/config"
-	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/dev-toolings/pvecli/internal/config"
+	"github.com/dev-toolings/pvecli/internal/pve"
 )
 
 // TestMain isolates the package from whatever the developer has on their own

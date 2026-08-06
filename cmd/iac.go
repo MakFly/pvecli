@@ -15,11 +15,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/MakFly/pvecli/internal/config"
-	"github.com/MakFly/pvecli/internal/iac"
-	"github.com/MakFly/pvecli/internal/output"
-	"github.com/MakFly/pvecli/internal/pve"
-	"github.com/MakFly/pvecli/internal/secret"
+	"github.com/dev-toolings/pvecli/internal/config"
+	"github.com/dev-toolings/pvecli/internal/iac"
+	"github.com/dev-toolings/pvecli/internal/output"
+	"github.com/dev-toolings/pvecli/internal/pve"
+	"github.com/dev-toolings/pvecli/internal/secret"
 	"github.com/spf13/cobra"
 )
 

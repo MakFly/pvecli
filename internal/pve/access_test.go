@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvecli/internal/testutil"
+	"github.com/dev-toolings/pvecli/internal/testutil"
 )
 
 func accessClient(t *testing.T, routes map[string]string) *Client {

@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MakFly/pvecli/internal/secret"
+	"github.com/dev-toolings/pvecli/internal/secret"
 )
 
 // Environment variable names. They match the `pve-api` bash client of the

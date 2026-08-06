@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvecli/internal/iac"
-	"github.com/MakFly/pvecli/internal/testutil"
+	"github.com/dev-toolings/pvecli/internal/iac"
+	"github.com/dev-toolings/pvecli/internal/testutil"
 )
 
 func readDeclaration(t *testing.T, tfDir string) *iac.Declaration {

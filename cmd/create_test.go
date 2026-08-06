@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/dev-toolings/pvecli/internal/pve"
 )
 
 // The pool is not decoration: the node accepts VM.Allocate on /pool/{pool} as

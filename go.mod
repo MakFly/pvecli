@@ -1,4 +1,4 @@
-module github.com/MakFly/pvecli
+module github.com/dev-toolings/pvecli
 
 go 1.26.4
 

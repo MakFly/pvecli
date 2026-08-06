@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MakFly/pvecli/internal/secret"
+	"github.com/dev-toolings/pvecli/internal/secret"
 	"github.com/spf13/pflag"
 )
 

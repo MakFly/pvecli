@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/dev-toolings/pvecli/internal/pve"
 )
 
 // releasedBinary is what the fake release serves as "the new pvecli". Its

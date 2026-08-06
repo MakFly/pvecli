@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installe pvecli depuis les releases GitHub.
 #
-#   curl -fsSL https://raw.githubusercontent.com/MakFly/pvecli/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/dev-toolings/pvecli/main/install.sh | sh
 #
 # Variables :
 #   PVECLI_VERSION        version précise (défaut : la dernière release)
@@ -21,7 +21,7 @@
 # coûte peu et ne se rattrape pas après coup.
 set -eu
 
-REPO="MakFly/pvecli"
+REPO="dev-toolings/pvecli"
 BINARY="pvecli"
 PREFIX="${PREFIX:-$HOME/.local}"
 BINDIR="$PREFIX/bin"

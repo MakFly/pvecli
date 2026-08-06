@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/MakFly/pvecli/internal/catalog"
-	"github.com/MakFly/pvecli/internal/iac"
-	"github.com/MakFly/pvecli/internal/output"
+	"github.com/dev-toolings/pvecli/internal/catalog"
+	"github.com/dev-toolings/pvecli/internal/iac"
+	"github.com/dev-toolings/pvecli/internal/output"
 )
 
 // fileState is what is already on disk where an asset wants to go.

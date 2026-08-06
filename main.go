@@ -5,7 +5,7 @@ import (
 	"errors"
 	"os"
 
-	"github.com/MakFly/pvecli/cmd"
+	"github.com/dev-toolings/pvecli/cmd"
 )
 
 // exitCoder is implemented by errors that know which exit code of PRD §7.5

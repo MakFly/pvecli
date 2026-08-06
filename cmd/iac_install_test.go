@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvecli/internal/testutil"
+	"github.com/dev-toolings/pvecli/internal/testutil"
 )
 
 // isolatedPath points PATH at an empty directory, so a test controls exactly

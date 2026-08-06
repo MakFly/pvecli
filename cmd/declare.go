@@ -8,9 +8,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/MakFly/pvecli/internal/catalog"
-	"github.com/MakFly/pvecli/internal/iac"
-	"github.com/MakFly/pvecli/internal/output"
+	"github.com/dev-toolings/pvecli/internal/catalog"
+	"github.com/dev-toolings/pvecli/internal/iac"
+	"github.com/dev-toolings/pvecli/internal/output"
 )
 
 type declareOpts struct {

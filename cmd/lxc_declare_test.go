@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvecli/internal/iac"
-	"github.com/MakFly/pvecli/internal/testutil"
+	"github.com/dev-toolings/pvecli/internal/iac"
+	"github.com/dev-toolings/pvecli/internal/testutil"
 )
 
 func TestLXCDeclareWritesTheContainerAndItsServiceTags(t *testing.T) {

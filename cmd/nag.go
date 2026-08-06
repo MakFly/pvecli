@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/MakFly/pvecli/internal/nag"
-	"github.com/MakFly/pvecli/internal/output"
+	"github.com/dev-toolings/pvecli/internal/nag"
+	"github.com/dev-toolings/pvecli/internal/output"
 	"github.com/spf13/cobra"
 )
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvecli/internal/config"
+	"github.com/dev-toolings/pvecli/internal/config"
 )
 
 // seedConfig writes a config file in a temp dir and returns its path.

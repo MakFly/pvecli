@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MakFly/pvecli/internal/pve"
-	"github.com/MakFly/pvecli/internal/testutil"
+	"github.com/dev-toolings/pvecli/internal/pve"
+	"github.com/dev-toolings/pvecli/internal/testutil"
 )
 
 // inventoryRoutes describes a lab with one of every case the generator has to

@@ -7,11 +7,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/MakFly/pvecli/internal/cf"
-	"github.com/MakFly/pvecli/internal/config"
-	"github.com/MakFly/pvecli/internal/output"
-	"github.com/MakFly/pvecli/internal/pve"
-	"github.com/MakFly/pvecli/internal/secret"
+	"github.com/dev-toolings/pvecli/internal/cf"
+	"github.com/dev-toolings/pvecli/internal/config"
+	"github.com/dev-toolings/pvecli/internal/output"
+	"github.com/dev-toolings/pvecli/internal/pve"
+	"github.com/dev-toolings/pvecli/internal/secret"
 )
 
 // cfTokenRef is where `cf tunnel create` files a connector token, and where the

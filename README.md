@@ -131,7 +131,7 @@ fails if it is.
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/MakFly/pvecli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dev-toolings/pvecli/main/install.sh | sh
 ```
 
 It detects the platform, resolves the latest release, **verifies the SHA-256
@@ -238,7 +238,7 @@ Only `linux/amd64` and `darwin/arm64` are published. Anywhere else, build from
 source — Go 1.26+:
 
 ```sh
-git clone https://github.com/MakFly/pvecli.git
+git clone https://github.com/dev-toolings/pvecli.git
 cd pvecli
 make build          # → ./pvecli, version and commit injected at link time
 make install        # → ~/.local/bin/pvecli, AND the agent in ~/.claude/agents/
@@ -291,7 +291,7 @@ Nothing is published that has not been proved, in this order:
    and says nothing about where it came from.
 
 ```sh
-gh attestation verify pvecli_v0.1.0_linux_amd64 --repo MakFly/pvecli
+gh attestation verify pvecli_v0.1.0_linux_amd64 --repo dev-toolings/pvecli
 ```
 
 ### First run

@@ -9,8 +9,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/MakFly/pvecli/internal/catalog"
-	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/dev-toolings/pvecli/internal/catalog"
+	"github.com/dev-toolings/pvecli/internal/pve"
 )
 
 // pickServices asks which services to install.

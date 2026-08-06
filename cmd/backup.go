@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/MakFly/pvecli/internal/output"
-	"github.com/MakFly/pvecli/internal/pve"
-	"github.com/MakFly/pvecli/internal/service"
+	"github.com/dev-toolings/pvecli/internal/output"
+	"github.com/dev-toolings/pvecli/internal/pve"
+	"github.com/dev-toolings/pvecli/internal/service"
 	"github.com/spf13/cobra"
 )
 

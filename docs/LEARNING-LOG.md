@@ -40,9 +40,9 @@ une commande qui échoue explicitement en pointant PVX-005, plutôt qu'un verbe
 laissé libre qu'on finira par câbler sur la mauvaise valeur.
 
 **Clôture** — dépôt initialisé et publié sur
-[MakFly/pvecli](https://github.com/MakFly/pvecli) ; `make build` injecte
+[dev-toolings/pvecli](https://github.com/dev-toolings/pvecli) ; `make build` injecte
 désormais le vrai SHA court. Le module porte son chemin définitif
-(`github.com/MakFly/pvecli`) dès la première story : le renommer coûtait trois
+(`github.com/dev-toolings/pvecli`) dès la première story : le renommer coûtait trois
 fichiers maintenant, quarante à M7. `golangci-lint` 2.12 passe à zéro issue,
 configuration épinglée dans `.golangci.yml`.
 

@@ -6,8 +6,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/MakFly/pvecli/internal/config"
-	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/dev-toolings/pvecli/internal/config"
+	"github.com/dev-toolings/pvecli/internal/pve"
 	"github.com/spf13/cobra"
 )
 

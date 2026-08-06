@@ -3,7 +3,7 @@
 # s'en charge, et un nœud qui se met à jour tout seul est un nœud qui change
 # pendant qu'on travaille dessus.
 Description=Met à jour pvecli si une nouvelle release est publiée
-Documentation=https://github.com/MakFly/pvecli
+Documentation=https://github.com/dev-toolings/pvecli
 # Sans réseau, il n'y a rien à demander à GitHub — on sort en silence plutôt
 # que d'écrire un échec quotidien dans le journal.
 After=network-online.target

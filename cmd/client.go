@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/MakFly/pvecli/internal/config"
-	"github.com/MakFly/pvecli/internal/log"
-	"github.com/MakFly/pvecli/internal/pve"
-	"github.com/MakFly/pvecli/internal/secret"
+	"github.com/dev-toolings/pvecli/internal/config"
+	"github.com/dev-toolings/pvecli/internal/log"
+	"github.com/dev-toolings/pvecli/internal/pve"
+	"github.com/dev-toolings/pvecli/internal/secret"
 	"github.com/spf13/cobra"
 )
 

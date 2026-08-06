@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/MakFly/pvecli/internal/pve"
+	"github.com/dev-toolings/pvecli/internal/pve"
 )
 
 // TaskAPI is the slice of the client the waiter needs.

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MakFly/pvecli/internal/pve"
-	"github.com/MakFly/pvecli/internal/testutil"
+	"github.com/dev-toolings/pvecli/internal/pve"
+	"github.com/dev-toolings/pvecli/internal/testutil"
 )
 
 // Le plan d'un redémarrage de nœud doit dire ce qu'il coupe. C'est la commande
