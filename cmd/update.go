@@ -40,7 +40,7 @@ const updateCheckFailureTTL = 1 * time.Hour
 const updateCheckTimeout = 2 * time.Second
 
 // updateRepo is the GitHub repository whose releases this command watches.
-const updateRepo = "MakFly/pvecli"
+const updateRepo = "dev-toolings/pvecli"
 
 // githubAPIBase is a variable, not a constant, so a test can point it at an
 // httptest.Server instead of the real GitHub API. Nothing in this package
